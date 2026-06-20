@@ -96,7 +96,13 @@
   .btn.pri{background:var(--teal);color:#04201c}
   .btn.gho{background:var(--panel2);color:var(--txt);border:1px solid var(--line)}
   .btn.danger{background:#7c1d1d;color:#fca5a5}
-  #reader{width:100%;border-radius:14px;overflow:hidden;background:#000;min-height:240px}
+  .reader-wrap{position:relative;border-radius:14px;overflow:hidden;background:#000;min-height:260px}
+  #reader{width:100%;display:block;min-height:260px;object-fit:cover}
+  .reticle{position:absolute;left:7%;right:7%;top:32%;height:36%;border:2px solid var(--teal);
+    border-radius:10px;pointer-events:none;box-shadow:0 0 0 2000px rgba(0,0,0,.22)}
+  .reticle:before,.reticle:after{content:'';position:absolute;left:0;right:0;height:2px;background:#14b8a6aa}
+  .reticle:before{top:50%}
+  .torch{margin-top:10px}
   .scanhint{text-align:center;color:var(--mut);font-size:13px;margin:12px 0}
   .lookup{display:flex;align-items:center;gap:8px;color:var(--teal);font-size:13px;margin-top:8px}
   .spinner{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--teal);border-radius:50%;animation:spin .7s linear infinite}
@@ -181,8 +187,9 @@
   <div class="sheet">
     <div class="grip"></div>
     <h2>Scan a barcode</h2>
-    <video id="reader" playsinline webkit-playsinline muted autoplay></video>
-    <div class="scanhint" id="scanHint">Point your camera at a product barcode…</div>
+    <div class="reader-wrap"><video id="reader" playsinline webkit-playsinline muted autoplay></video><div class="reticle"></div></div>
+    <div class="scanhint" id="scanHint">Center the barcode in the box, fill the frame, hold steady…</div>
+    <button class="btn gho torch" id="torchBtn" style="display:none" onclick="toggleTorch()">🔦 Light on</button>
     <button class="btn gho" onclick="closeScan()">Cancel / type it instead</button>
   </div>
 </div>
@@ -220,6 +227,7 @@ var tab = 'have';
 var locFilter = 'All';
 var editingId = null;
 var codeReader = null;
+var scanTrack = null, torchOn = false;
 
 /* ---------- emoji guesser (cosmetic) ---------- */
 var EMOJI_MAP = [
@@ -493,16 +501,45 @@ function openScan(){
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){ hint.textContent='This browser won’t allow camera access here — type the item instead.'; return; }
   if(!window.ZXing){ hint.textContent='Scanner didn’t load (offline?) — type it instead.'; return; }
   try{
-    codeReader=new ZXing.BrowserMultiFormatReader();
-    codeReader.decodeFromConstraints(
-      {video:{facingMode:{ideal:'environment'}}}, 'reader',
+    var hints=new Map();
+    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+      ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8,
+      ZXing.BarcodeFormat.UPC_A,  ZXing.BarcodeFormat.UPC_E,
+      ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39,
+      ZXing.BarcodeFormat.ITF
+    ]);
+    // hints + ~120ms between scans = more decode passes per second
+    codeReader=new ZXing.BrowserMultiFormatReader(hints, 120);
+    var constraints={video:{ facingMode:{ideal:'environment'},
+      width:{ideal:1920}, height:{ideal:1080} }};
+    codeReader.decodeFromConstraints(constraints, 'reader',
       function(result,err){
         if(result){ var code=result.getText(); stopScan(); onBarcode(code); }
       }
-    ).catch(function(e){ hint.textContent='Camera unavailable ('+((e&&e.name)||'error')+') — type the item instead.'; });
+    ).then(function(){ setupTorch(); })
+     .catch(function(e){ hint.textContent='Camera unavailable ('+((e&&e.name)||'error')+') — type the item instead.'; });
   }catch(e){ hint.textContent='Camera unavailable — type the item instead.'; }
 }
-function stopScan(){ if(codeReader){ try{codeReader.reset();}catch(e){} codeReader=null; } }
+function setupTorch(){
+  try{
+    var stream=document.getElementById('reader').srcObject; if(!stream)return;
+    scanTrack=stream.getVideoTracks()[0];
+    var caps=(scanTrack&&scanTrack.getCapabilities)?scanTrack.getCapabilities():{};
+    if(caps&&caps.torch){ torchOn=false; var b=document.getElementById('torchBtn'); b.textContent='🔦 Light on'; b.style.display='block'; }
+  }catch(e){}
+}
+function toggleTorch(){
+  if(!scanTrack)return; torchOn=!torchOn;
+  scanTrack.applyConstraints({advanced:[{torch:torchOn}]})
+    .then(function(){ document.getElementById('torchBtn').textContent=torchOn?'🔦 Light off':'🔦 Light on'; })
+    .catch(function(){ torchOn=!torchOn; });
+}
+function stopScan(){
+  if(scanTrack){ try{scanTrack.applyConstraints({advanced:[{torch:false}]});}catch(e){} scanTrack=null; }
+  torchOn=false; var tb=document.getElementById('torchBtn'); if(tb)tb.style.display='none';
+  if(codeReader){ try{codeReader.reset();}catch(e){} codeReader=null; }
+}
 function closeScan(){ stopScan(); closeSheet('scanScrim'); }
 function onBarcode(code){
   closeSheet('scanScrim');
