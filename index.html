@@ -228,6 +228,7 @@ var locFilter = 'All';
 var editingId = null;
 var codeReader = null;
 var scanTrack = null, torchOn = false;
+var scanTimer = null, scanCanvas = null, scanReader = null, scanHints = null;
 
 /* ---------- emoji guesser (cosmetic) ---------- */
 var EMOJI_MAP = [
@@ -493,30 +494,83 @@ function deleteItem(){
 function rememberName(n){ if(!state.history)state.history=[]; var k=n.toLowerCase(); state.history=state.history.filter(function(x){return x.toLowerCase()!==k;}); state.history.unshift(n); state.history=state.history.slice(0,60); }
 
 /* ---------- barcode scanning ---------- */
+function scanFormats(){
+  return [ ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8,
+    ZXing.BarcodeFormat.UPC_A, ZXing.BarcodeFormat.UPC_E,
+    ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39, ZXing.BarcodeFormat.ITF ];
+}
+function scanHintsMap(){
+  var h=new Map();
+  h.set(ZXing.DecodeHintType.TRY_HARDER, true);
+  h.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, scanFormats());
+  return h;
+}
+function hasLowLevel(){
+  return window.ZXing && ZXing.MultiFormatReader && ZXing.BinaryBitmap
+    && ZXing.HybridBinarizer && ZXing.HTMLCanvasElementLuminanceSource;
+}
 function openScan(){
   openSheet('scanScrim');
   var hint=document.getElementById('scanHint');
-  hint.textContent='Point your camera at a product barcode…';
+  hint.textContent='Center the barcode in the box, fill the frame, hold steady…';
   if(location.protocol==='file:'){ hint.innerHTML='⚠️ The camera only works on the hosted (https) version. Open DuetPantry from its web address / home-screen icon, not as a file.'; return; }
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){ hint.textContent='This browser won’t allow camera access here — type the item instead.'; return; }
   if(!window.ZXing){ hint.textContent='Scanner didn’t load (offline?) — type it instead.'; return; }
+  if(hasLowLevel()) startAdvancedScan(); else startLegacyScan();
+}
+// Advanced: own the stream, zoom in, decode only the center band at full resolution each tick.
+function startAdvancedScan(){
+  var hint=document.getElementById('scanHint');
+  var v=document.getElementById('reader');
+  navigator.mediaDevices.getUserMedia({video:{ facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080} }})
+    .then(function(stream){
+      v.srcObject=stream; scanTrack=stream.getVideoTracks()[0];
+      var p=v.play(); if(p&&p.catch) p.catch(function(){});
+      applyZoom(); setupTorch();
+      scanReader=new ZXing.MultiFormatReader();
+      scanHints=scanHintsMap();
+      if(scanReader.setHints) scanReader.setHints(scanHints);
+      scanCanvas=document.createElement('canvas');
+      decodeTick();
+    })
+    .catch(function(e){ hint.textContent='Camera unavailable ('+((e&&e.name)||'error')+') — type the item instead.'; });
+}
+function applyZoom(){
   try{
-    var hints=new Map();
-    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-      ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8,
-      ZXing.BarcodeFormat.UPC_A,  ZXing.BarcodeFormat.UPC_E,
-      ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39,
-      ZXing.BarcodeFormat.ITF
-    ]);
-    // hints + ~120ms between scans = more decode passes per second
-    codeReader=new ZXing.BrowserMultiFormatReader(hints, 120);
-    var constraints={video:{ facingMode:{ideal:'environment'},
-      width:{ideal:1920}, height:{ideal:1080} }};
-    codeReader.decodeFromConstraints(constraints, 'reader',
-      function(result,err){
-        if(result){ var code=result.getText(); stopScan(); onBarcode(code); }
-      }
+    var caps=(scanTrack&&scanTrack.getCapabilities)?scanTrack.getCapabilities():null;
+    if(caps&&caps.zoom){
+      var z=Math.min((caps.zoom.max||2), Math.max((caps.zoom.min||1), 2));
+      if(z>(caps.zoom.min||1)) scanTrack.applyConstraints({advanced:[{zoom:z}]}).catch(function(){});
+    }
+  }catch(e){}
+}
+function decodeTick(){
+  var v=document.getElementById('reader');
+  if(!scanTrack||!scanReader) return;
+  try{
+    var vw=v.videoWidth, vh=v.videoHeight;
+    if(vw&&vh){
+      var bandW=Math.round(vw*0.92), bandH=Math.round(vh*0.5);
+      var x0=Math.round((vw-bandW)/2), y0=Math.round((vh-bandH)/2);
+      scanCanvas.width=bandW; scanCanvas.height=bandH;
+      var ctx=scanCanvas.getContext('2d',{willReadFrequently:true});
+      ctx.drawImage(v, x0,y0,bandW,bandH, 0,0,bandW,bandH);
+      var src=new ZXing.HTMLCanvasElementLuminanceSource(scanCanvas);
+      var bmp=new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(src));
+      var res=null; try{ res=scanReader.decode(bmp, scanHints); }catch(e){}
+      if(res&&res.getText){ var code=res.getText(); stopScan(); onBarcode(code); return; }
+    }
+  }catch(e){}
+  scanTimer=setTimeout(decodeTick, 85);   // ~12 decode passes/sec on the cropped band
+}
+// Legacy fallback: high-level reader (used only if low-level classes are unavailable).
+function startLegacyScan(){
+  var hint=document.getElementById('scanHint');
+  try{
+    codeReader=new ZXing.BrowserMultiFormatReader(scanHintsMap(), 120);
+    codeReader.decodeFromConstraints(
+      {video:{ facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080} }}, 'reader',
+      function(result){ if(result){ var code=result.getText(); stopScan(); onBarcode(code); } }
     ).then(function(){ setupTorch(); })
      .catch(function(e){ hint.textContent='Camera unavailable ('+((e&&e.name)||'error')+') — type the item instead.'; });
   }catch(e){ hint.textContent='Camera unavailable — type the item instead.'; }
@@ -536,9 +590,14 @@ function toggleTorch(){
     .catch(function(){ torchOn=!torchOn; });
 }
 function stopScan(){
-  if(scanTrack){ try{scanTrack.applyConstraints({advanced:[{torch:false}]});}catch(e){} scanTrack=null; }
+  if(scanTimer){ clearTimeout(scanTimer); scanTimer=null; }
+  if(scanTrack){ try{scanTrack.applyConstraints({advanced:[{torch:false}]});}catch(e){} }
   torchOn=false; var tb=document.getElementById('torchBtn'); if(tb)tb.style.display='none';
-  if(codeReader){ try{codeReader.reset();}catch(e){} codeReader=null; }
+  if(codeReader){ try{codeReader.reset();}catch(e){} codeReader=null; }   // also stops its stream
+  try{ var v=document.getElementById('reader');
+    if(v&&v.srcObject){ v.srcObject.getTracks().forEach(function(t){ try{t.stop();}catch(e){} }); v.srcObject=null; }
+  }catch(e){}
+  scanTrack=null; scanReader=null;
 }
 function closeScan(){ stopScan(); closeSheet('scanScrim'); }
 function onBarcode(code){
