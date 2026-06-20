@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f766e">
+<title>DuetPantry</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#121b2e; --panel2:#1a2540; --line:#243150;
+    --txt:#e8eefc; --mut:#90a0c0; --teal:#14b8a6; --teal2:#0f766e;
+    --amber:#f59e0b; --red:#ef4444; --green:#22c55e; --blue:#3b82f6;
+    --radius:16px; --shadow:0 8px 30px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;overscroll-behavior-y:contain}
+  body{padding-bottom:env(safe-area-inset-bottom)}
+  .app{max-width:560px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
+  header{position:sticky;top:0;z-index:30;background:linear-gradient(180deg,#0f766e,#0b5e57);
+    padding:calc(14px + env(safe-area-inset-top)) 16px 14px;box-shadow:var(--shadow)}
+  .brand{display:flex;align-items:center;gap:10px;justify-content:space-between}
+  .brand h1{font-size:20px;margin:0;font-weight:700;letter-spacing:.3px;display:flex;align-items:center;gap:8px}
+  .logo{width:30px;height:30px;border-radius:9px;background:#fff2;display:flex;align-items:center;justify-content:center;font-size:18px}
+  .cloud{font-size:12px;color:#d7fff7;display:flex;align-items:center;gap:5px;background:#ffffff1a;padding:5px 9px;border-radius:20px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--green)}
+  .dot.off{background:#9ca3af}.dot.busy{background:var(--amber)}
+  .search{margin-top:12px;position:relative}
+  .search input{width:100%;padding:12px 14px 12px 40px;border-radius:12px;border:none;
+    background:#ffffff22;color:#fff;font-size:16px;outline:none}
+  .search input::placeholder{color:#d7fff7cc}
+  .search .ic{position:absolute;left:13px;top:50%;transform:translateY(-50%);opacity:.85}
+  main{flex:1;padding:14px 14px 90px}
+  .tabs{display:flex;gap:8px;margin-bottom:14px}
+  .tab{flex:1;padding:11px;text-align:center;border-radius:12px;background:var(--panel);
+    color:var(--mut);font-weight:600;font-size:14px;border:1px solid var(--line);cursor:pointer;position:relative}
+  .tab.on{background:var(--teal);color:#04201c;border-color:var(--teal)}
+  .tab .badge{position:absolute;top:-6px;right:-6px;background:var(--amber);color:#3a2400;
+    font-size:11px;font-weight:800;min-width:20px;height:20px;border-radius:10px;display:flex;align-items:center;justify-content:center;padding:0 5px}
+  .loc-filter{display:flex;gap:7px;overflow-x:auto;padding-bottom:8px;margin-bottom:6px;scrollbar-width:none}
+  .loc-filter::-webkit-scrollbar{display:none}
+  .chip{white-space:nowrap;padding:7px 13px;border-radius:20px;background:var(--panel);
+    border:1px solid var(--line);color:var(--mut);font-size:13px;font-weight:600;cursor:pointer}
+  .chip.on{background:var(--panel2);color:var(--txt);border-color:var(--teal)}
+  .group-h{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--mut);
+    margin:16px 4px 8px;font-weight:700;display:flex;align-items:center;gap:7px}
+  .group-h .n{background:var(--panel2);padding:1px 8px;border-radius:10px;font-size:11px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:13px;margin-bottom:10px;display:flex;align-items:center;gap:12px;animation:pop .18s ease}
+  @keyframes pop{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .card.low{border-color:#7c5310;background:linear-gradient(90deg,#1f1708,var(--panel) 60%)}
+  .card.exp{border-color:#7c1d1d}
+  .ic-emoji{width:42px;height:42px;border-radius:11px;background:var(--panel2);display:flex;
+    align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
+  .info{flex:1;min-width:0}
+  .info .nm{font-weight:600;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .info .sub{font-size:12px;color:var(--mut);margin-top:2px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .tagy{background:#7c531033;color:var(--amber);padding:1px 7px;border-radius:8px;font-weight:600;font-size:11px}
+  .tagr{background:#7c1d1d44;color:#fca5a5;padding:1px 7px;border-radius:8px;font-weight:600;font-size:11px}
+  .qty{display:flex;align-items:center;gap:0;background:var(--panel2);border-radius:12px;overflow:hidden;flex-shrink:0}
+  .qty button{width:38px;height:38px;border:none;background:transparent;color:var(--txt);font-size:20px;font-weight:700;cursor:pointer}
+  .qty button:active{background:#ffffff15}
+  .qty .v{min-width:34px;text-align:center;font-weight:700;font-size:16px}
+  .qty button.minus{color:var(--red)}.qty button.plus{color:var(--green)}
+  .row-act{display:flex;flex-direction:column;gap:4px;flex-shrink:0}
+  .mini{font-size:11px;color:var(--mut);background:none;border:none;cursor:pointer;padding:2px 4px}
+  .empty{text-align:center;padding:60px 20px;color:var(--mut)}
+  .empty .big{font-size:54px;margin-bottom:12px;opacity:.6}
+  .fab{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);
+    max-width:560px;width:calc(100% - 28px);display:flex;gap:10px;z-index:25}
+  .fab button{flex:1;padding:15px;border:none;border-radius:14px;font-size:15px;font-weight:700;
+    cursor:pointer;box-shadow:var(--shadow);display:flex;align-items:center;justify-content:center;gap:8px}
+  .fab .scan{background:var(--teal);color:#04201c}
+  .fab .add{background:var(--panel2);color:var(--txt);border:1px solid var(--line)!important}
+  /* sheet / modal */
+  .scrim{position:fixed;inset:0;background:#000a;z-index:40;display:none;align-items:flex-end;justify-content:center}
+  .scrim.show{display:flex}
+  .sheet{background:var(--panel);width:100%;max-width:560px;border-radius:22px 22px 0 0;
+    padding:18px 18px calc(24px + env(safe-area-inset-bottom));max-height:92vh;overflow:auto;animation:up .22s ease}
+  @keyframes up{from{transform:translateY(100%)}to{transform:none}}
+  .sheet h2{margin:4px 0 16px;font-size:18px}
+  .grip{width:40px;height:4px;background:var(--line);border-radius:2px;margin:0 auto 14px}
+  label.fld{display:block;font-size:12px;color:var(--mut);margin:12px 0 5px;font-weight:600}
+  input.f,select.f{width:100%;padding:13px;border-radius:11px;border:1px solid var(--line);
+    background:var(--panel2);color:var(--txt);font-size:16px;outline:none}
+  input.f:focus,select.f:focus{border-color:var(--teal)}
+  .seg{display:flex;gap:7px;flex-wrap:wrap}
+  .seg .o{flex:1;min-width:70px;text-align:center;padding:11px;border-radius:11px;background:var(--panel2);
+    border:1px solid var(--line);font-weight:600;font-size:14px;cursor:pointer}
+  .seg .o.on{background:var(--teal);color:#04201c;border-color:var(--teal)}
+  .two{display:flex;gap:10px}.two>*{flex:1}
+  .btn{width:100%;padding:15px;border:none;border-radius:13px;font-size:16px;font-weight:700;cursor:pointer;margin-top:18px}
+  .btn.pri{background:var(--teal);color:#04201c}
+  .btn.gho{background:var(--panel2);color:var(--txt);border:1px solid var(--line)}
+  .btn.danger{background:#7c1d1d;color:#fca5a5}
+  #reader{width:100%;border-radius:14px;overflow:hidden;background:#000;min-height:240px}
+  .scanhint{text-align:center;color:var(--mut);font-size:13px;margin:12px 0}
+  .lookup{display:flex;align-items:center;gap:8px;color:var(--teal);font-size:13px;margin-top:8px}
+  .spinner{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--teal);border-radius:50%;animation:spin .7s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%);background:#04201c;color:#d7fff7;
+    padding:12px 20px;border-radius:30px;font-size:14px;font-weight:600;z-index:60;box-shadow:var(--shadow);
+    border:1px solid var(--teal2);opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;white-space:nowrap}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .quickrow{display:flex;gap:8px;overflow-x:auto;padding:4px 0 10px;scrollbar-width:none}
+  .quickrow::-webkit-scrollbar{display:none}
+  .quickrow .q{white-space:nowrap;padding:8px 13px;border-radius:11px;background:var(--panel2);
+    border:1px solid var(--line);font-size:13px;font-weight:600;cursor:pointer;display:flex;gap:6px;align-items:center}
+  .menu-row{display:flex;gap:8px;margin-top:8px}
+  .menu-row .mb{flex:1;padding:11px;border-radius:11px;background:var(--panel2);border:1px solid var(--line);
+    color:var(--txt);font-size:13px;font-weight:600;cursor:pointer;text-align:center}
+  .shop-card{cursor:pointer}
+  .check{width:30px;height:30px;border-radius:50%;border:2px solid var(--teal);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--teal)}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">
+      <h1><span class="logo">🥫</span> DuetPantry</h1>
+      <div class="cloud" onclick="manualSync()"><span class="dot" id="syncDot"></span><span id="syncTxt">Synced</span></div>
+    </div>
+    <div class="search">
+      <span class="ic">🔎</span>
+      <input id="search" placeholder="Do I have…?" oninput="render()" autocomplete="off">
+    </div>
+  </header>
+  <main>
+    <div class="tabs">
+      <div class="tab on" id="tab-have" onclick="setTab('have')">In My Kitchen</div>
+      <div class="tab" id="tab-shop" onclick="setTab('shop')">Shopping List<span class="badge" id="shopBadge" style="display:none">0</span></div>
+    </div>
+    <div id="locFilter" class="loc-filter"></div>
+    <div id="list"></div>
+  </main>
+</div>
+
+<div class="fab" id="fab">
+  <button class="add" onclick="openAdd()">＋ Add</button>
+  <button class="scan" onclick="openScan()">📷 Scan barcode</button>
+</div>
+
+<!-- Add / Edit sheet -->
+<div class="scrim" id="addScrim">
+  <div class="sheet">
+    <div class="grip"></div>
+    <h2 id="addTitle">Add item</h2>
+    <div id="quickWrap" style="display:none">
+      <label class="fld">Add again (you've had these before)</label>
+      <div class="quickrow" id="quickRow"></div>
+    </div>
+    <label class="fld">Item name</label>
+    <input class="f" id="f_name" placeholder="e.g. Eggs" autocomplete="off">
+    <div id="lookupMsg"></div>
+    <label class="fld">Where does it live?</label>
+    <div class="seg" id="f_loc"></div>
+    <div class="two">
+      <div>
+        <label class="fld">Quantity</label>
+        <input class="f" id="f_qty" type="number" inputmode="decimal" value="1" min="0" step="0.5">
+      </div>
+      <div>
+        <label class="fld">Alert when below</label>
+        <input class="f" id="f_low" type="number" inputmode="decimal" value="1" min="0" step="0.5">
+      </div>
+    </div>
+    <label class="fld">Expires (optional)</label>
+    <input class="f" id="f_exp" type="date">
+    <input type="hidden" id="f_id"><input type="hidden" id="f_barcode">
+    <button class="btn pri" onclick="saveItem()">Save</button>
+    <button class="btn danger" id="delBtn" style="display:none" onclick="deleteItem()">Delete item</button>
+    <button class="btn gho" onclick="closeSheet('addScrim')">Cancel</button>
+  </div>
+</div>
+
+<!-- Scan sheet -->
+<div class="scrim" id="scanScrim">
+  <div class="sheet">
+    <div class="grip"></div>
+    <h2>Scan a barcode</h2>
+    <video id="reader" playsinline webkit-playsinline muted autoplay></video>
+    <div class="scanhint" id="scanHint">Point your camera at a product barcode…</div>
+    <button class="btn gho" onclick="closeScan()">Cancel / type it instead</button>
+  </div>
+</div>
+
+<!-- Menu sheet -->
+<div class="scrim" id="menuScrim">
+  <div class="sheet">
+    <div class="grip"></div>
+    <h2>Pantry options</h2>
+    <div class="menu-row">
+      <div class="mb" onclick="manualSync()">☁️ Back up now</div>
+      <div class="mb" onclick="restoreCloud()">⬇️ Restore from cloud</div>
+    </div>
+    <div class="menu-row">
+      <div class="mb" onclick="exportData()">📤 Export JSON</div>
+      <div class="mb" onclick="document.getElementById('importFile').click()">📥 Import JSON</div>
+    </div>
+    <input type="file" id="importFile" accept="application/json" style="display:none" onchange="importData(event)">
+    <button class="btn gho" onclick="closeSheet('menuScrim')">Close</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script>
+/* ============ DuetPantry — single-file pantry tracker ============ */
+var FIREBASE_URL = 'https://duet-crm-default-rtdb.firebaseio.com/duetpantry/steve_maxim';
+var LS_KEY = 'duetpantry_state_v1';
+var LOCATIONS = ['Fridge','Freezer','Pantry','Spices','Other'];
+var LOC_EMOJI = {Fridge:'🧊',Freezer:'❄️',Pantry:'🥫',Spices:'🧂',Other:'📦'};
+
+var state = { items:[], shopping:[], updatedAt:0 };
+var tab = 'have';
+var locFilter = 'All';
+var editingId = null;
+var codeReader = null;
+
+/* ---------- emoji guesser (cosmetic) ---------- */
+var EMOJI_MAP = [
+  [/egg/,'🥚'],[/milk|cream|dairy/,'🥛'],[/cheese/,'🧀'],[/butter/,'🧈'],
+  [/bread|bagel|bun|toast/,'🍞'],[/rice/,'🍚'],[/pasta|noodle|spaghetti/,'🍝'],
+  [/chicken|poultry/,'🍗'],[/beef|steak|meat|pork/,'🥩'],[/fish|salmon|tuna|cod/,'🐟'],
+  [/shrimp|prawn/,'🍤'],[/bacon/,'🥓'],[/apple/,'🍎'],[/banana/,'🍌'],[/orange|citrus|tangerine/,'🍊'],
+  [/lemon/,'🍋'],[/grape/,'🍇'],[/strawberr|berry|berries/,'🍓'],[/tomato/,'🍅'],
+  [/potato/,'🥔'],[/carrot/,'🥕'],[/onion/,'🧅'],[/garlic/,'🧄'],[/pepper|chili|chile/,'🌶️'],
+  [/broccoli|greens|lettuce|spinach|kale|salad/,'🥬'],[/avocado/,'🥑'],[/corn/,'🌽'],
+  [/mushroom/,'🍄'],[/cucumber|pickle/,'🥒'],[/coffee/,'☕'],[/tea/,'🍵'],
+  [/juice/,'🧃'],[/water|seltzer|sparkling/,'💧'],[/soda|cola|pop/,'🥤'],[/beer/,'🍺'],
+  [/wine/,'🍷'],[/oil|olive/,'🫒'],[/salt/,'🧂'],[/sugar/,'🍬'],[/flour|bake/,'🌾'],
+  [/honey/,'🍯'],[/chocolate|cocoa/,'🍫'],[/cookie|biscuit/,'🍪'],[/cereal|oat|granola/,'🥣'],
+  [/yogurt|yoghurt/,'🥛'],[/cake/,'🍰'],[/ice ?cream/,'🍦'],[/chip|crisp|snack/,'🍟'],
+  [/popcorn/,'🍿'],[/nut|almond|peanut|cashew/,'🥜'],[/bean|lentil/,'🫘'],[/soup|broth|stock/,'🥫'],
+  [/sauce|ketchup|mustard|mayo/,'🥫'],[/jam|jelly|preserve/,'🍓'],[/taco|salsa/,'🌮'],
+  [/pizza/,'🍕'],[/water|spice|cumin|cinnamon|paprika|oregano|basil|thyme/,'🧂']
+];
+function emojiFor(name){ var n=(name||'').toLowerCase(); for(var i=0;i<EMOJI_MAP.length;i++){ if(EMOJI_MAP[i][0].test(n)) return EMOJI_MAP[i][1]; } return '🍽️'; }
+
+/* ---------- persistence ---------- */
+function load(){ try{ var s=localStorage.getItem(LS_KEY); if(s) state=JSON.parse(s); }catch(e){} if(!state.items)state.items=[]; if(!state.shopping)state.shopping=[]; }
+function persist(){ state.updatedAt=Date.now(); try{ localStorage.setItem(LS_KEY,JSON.stringify(state)); }catch(e){} scheduleSync(); }
+
+var syncTimer=null;
+function scheduleSync(){ setSync('busy','Saving…'); if(syncTimer)clearTimeout(syncTimer); syncTimer=setTimeout(cloudSave,1200); }
+function setSync(s,t){ var d=document.getElementById('syncDot'); d.className='dot'+(s==='off'?' off':s==='busy'?' busy':''); document.getElementById('syncTxt').textContent=t; }
+function cloudSave(){
+  fetch(FIREBASE_URL+'.json',{method:'PUT',body:JSON.stringify(state)})
+    .then(function(r){ if(!r.ok)throw 0; setSync('on','Backed up'); })
+    .catch(function(){ setSync('off','Offline'); });
+}
+function manualSync(){ closeSheet('menuScrim'); setSync('busy','Backing up…'); cloudSave(); toast('☁️ Backing up to cloud'); }
+function restoreCloud(){
+  closeSheet('menuScrim'); setSync('busy','Restoring…');
+  fetch(FIREBASE_URL+'.json').then(function(r){return r.json()}).then(function(d){
+    if(!d){ toast('No cloud backup found'); setSync('on','Synced'); return; }
+    state=d; if(!state.items)state.items=[]; if(!state.shopping)state.shopping=[];
+    try{ localStorage.setItem(LS_KEY,JSON.stringify(state)); }catch(e){}
+    render(); setSync('on','Restored'); toast('⬇️ Restored from cloud');
+  }).catch(function(){ setSync('off','Offline'); toast('Could not reach cloud'); });
+}
+
+/* ---------- helpers ---------- */
+function uid(){ return 'p'+Date.now().toString(36)+Math.floor(Math.random()*1e4).toString(36); }
+function toast(msg){ var t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(function(){t.classList.remove('show')},1900); }
+function daysUntil(d){ if(!d)return null; var ms=new Date(d+'T00:00:00')-new Date(); return Math.ceil(ms/86400000); }
+
+/* ---------- tabs & filters ---------- */
+function setTab(t){ tab=t; locFilter='All';
+  document.getElementById('tab-have').classList.toggle('on',t==='have');
+  document.getElementById('tab-shop').classList.toggle('on',t==='shop');
+  document.getElementById('fab').style.display = t==='have'?'flex':'none';
+  render();
+}
+function setLoc(l){ locFilter=l; render(); }
+
+/* ---------- render ---------- */
+function render(){
+  // shopping badge
+  var b=document.getElementById('shopBadge');
+  if(state.shopping.length){ b.style.display='flex'; b.textContent=state.shopping.length; } else b.style.display='none';
+
+  if(tab==='shop'){ renderShop(); document.getElementById('locFilter').innerHTML=''; return; }
+
+  var q=(document.getElementById('search').value||'').toLowerCase().trim();
+  // location filter chips
+  var counts={}; state.items.forEach(function(it){ counts[it.location]=(counts[it.location]||0)+1; });
+  var lf=document.getElementById('locFilter'); var chips='<div class="chip'+(locFilter==='All'?' on':'')+'" onclick="setLoc(\'All\')">All ('+state.items.length+')</div>';
+  LOCATIONS.forEach(function(l){ if(counts[l]) chips+='<div class="chip'+(locFilter===l?' on':'')+'" onclick="setLoc(\''+l+'\')">'+LOC_EMOJI[l]+' '+l+' ('+counts[l]+')</div>'; });
+  lf.innerHTML=chips;
+
+  var items=state.items.filter(function(it){
+    if(locFilter!=='All' && it.location!==locFilter) return false;
+    if(q && it.name.toLowerCase().indexOf(q)<0) return false;
+    return true;
+  });
+
+  var el=document.getElementById('list');
+  if(!items.length){
+    el.innerHTML='<div class="empty"><div class="big">🧺</div><div>'+
+      (state.items.length? 'No matches.' : 'Your kitchen is empty.<br>Scan a barcode or tap Add to start.')+'</div></div>';
+    return;
+  }
+  // sort: low stock first, then by location order, then name
+  items.sort(function(a,b){
+    var al=isLow(a)?0:1, bl=isLow(b)?0:1; if(al!==bl)return al-bl;
+    var lo=LOCATIONS.indexOf(a.location)-LOCATIONS.indexOf(b.location); if(lo)return lo;
+    return a.name.localeCompare(b.name);
+  });
+  // group by location
+  var html=''; var curLoc=null;
+  items.forEach(function(it){
+    if(it.location!==curLoc){ curLoc=it.location;
+      html+='<div class="group-h">'+LOC_EMOJI[curLoc]+' '+curLoc+'</div>'; }
+    html+=itemCard(it);
+  });
+  el.innerHTML=html;
+}
+function isLow(it){ return it.low>0 && it.qty<=it.low; }
+function itemCard(it){
+  var low=isLow(it); var du=daysUntil(it.expiry); var expSoon=du!==null && du<=3;
+  var subs=[];
+  if(low) subs.push('<span class="tagy">Running low</span>');
+  if(du!==null){ if(du<0) subs.push('<span class="tagr">Expired</span>'); else if(du<=3) subs.push('<span class="tagr">'+du+'d left</span>'); else subs.push('<span style="opacity:.8">exp '+(du)+'d</span>'); }
+  return '<div class="card'+(low?' low':'')+(expSoon?' exp':'')+'">'+
+    '<div class="ic-emoji">'+emojiFor(it.name)+'</div>'+
+    '<div class="info" onclick="openEdit(\''+it.id+'\')">'+
+      '<div class="nm">'+esc(it.name)+'</div>'+
+      '<div class="sub">'+(subs.join('')||'<span>'+it.location+'</span>')+'</div>'+
+    '</div>'+
+    '<div class="row-act"><button class="mini" onclick="usedUp(\''+it.id+'\')">used up ✕</button></div>'+
+    '<div class="qty">'+
+      '<button class="minus" onclick="bump(\''+it.id+'\',-1)">−</button>'+
+      '<span class="v">'+fmt(it.qty)+'</span>'+
+      '<button class="plus" onclick="bump(\''+it.id+'\',1)">＋</button>'+
+    '</div></div>';
+}
+function fmt(n){ return (Math.round(n*100)/100).toString(); }
+function esc(s){ return (s||'').replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]}); }
+
+function renderShop(){
+  var el=document.getElementById('list');
+  if(!state.shopping.length){
+    el.innerHTML='<div class="empty"><div class="big">🛒</div><div>Shopping list is empty.<br>Items you run low on show up here automatically.</div></div>';
+    return;
+  }
+  var html='<div class="group-h">🛒 Need to buy <span class="n">'+state.shopping.length+'</span></div>';
+  state.shopping.forEach(function(s){
+    html+='<div class="card shop-card">'+
+      '<div class="check" onclick="boughtItem(\''+s.id+'\')">✓</div>'+
+      '<div class="ic-emoji">'+emojiFor(s.name)+'</div>'+
+      '<div class="info"><div class="nm">'+esc(s.name)+'</div>'+
+        '<div class="sub"><span>'+(s.location||'')+'</span>'+(s.auto?'<span class="tagy">auto</span>':'')+'</div></div>'+
+      '<div class="row-act"><button class="mini" onclick="removeShop(\''+s.id+'\')">remove ✕</button></div>'+
+      '</div>';
+  });
+  html+='<button class="btn gho" onclick="clearShop()">Clear bought / all</button>';
+  el.innerHTML=html;
+}
+
+/* ---------- inventory actions ---------- */
+function bump(id,d){
+  var it=find(id); if(!it)return;
+  it.qty=Math.max(0, Math.round((it.qty+d)*100)/100);
+  if(it.qty===0){ // out — move to shopping, remove from inventory
+    usedUp(id,true); return;
+  }
+  maybeAutoShop(it);
+  persist(); render();
+}
+function maybeAutoShop(it){
+  if(isLow(it) && !state.shopping.some(function(s){return s.name.toLowerCase()===it.name.toLowerCase()})){
+    state.shopping.push({id:uid(),name:it.name,location:it.location,barcode:it.barcode||'',auto:true});
+    toast('🛒 '+it.name+' added to shopping list');
+  }
+}
+function usedUp(id,silent){
+  var it=find(id); if(!it)return;
+  if(!state.shopping.some(function(s){return s.name.toLowerCase()===it.name.toLowerCase()})){
+    state.shopping.push({id:uid(),name:it.name,location:it.location,barcode:it.barcode||'',auto:true});
+  }
+  state.items=state.items.filter(function(x){return x.id!==id;});
+  if(!silent) toast('✓ Used up — moved to shopping list');
+  else toast('🛒 '+it.name+' → shopping list');
+  persist(); render();
+}
+function find(id){ for(var i=0;i<state.items.length;i++) if(state.items[i].id===id) return state.items[i]; return null; }
+
+/* ---------- shopping actions ---------- */
+function boughtItem(id){
+  var s=null; state.shopping=state.shopping.filter(function(x){ if(x.id===id){s=x;return false;} return true; });
+  if(s){
+    var ex=state.items.filter(function(it){return it.name.toLowerCase()===s.name.toLowerCase();})[0];
+    if(ex){ ex.qty=Math.round((ex.qty+1)*100)/100; }
+    else { state.items.push({id:uid(),name:s.name,qty:1,low:1,location:s.location||'Pantry',barcode:s.barcode||'',expiry:'',addedAt:Date.now()}); }
+    toast('✓ Bought — added to kitchen');
+  }
+  persist(); render();
+}
+function removeShop(id){ state.shopping=state.shopping.filter(function(x){return x.id!==id;}); persist(); render(); }
+function clearShop(){ if(confirm('Clear the whole shopping list?')){ state.shopping=[]; persist(); render(); } }
+
+/* ---------- add / edit sheet ---------- */
+function openAdd(prefill){
+  editingId=null;
+  document.getElementById('addTitle').textContent='Add item';
+  document.getElementById('delBtn').style.display='none';
+  document.getElementById('f_name').value=(prefill&&prefill.name)||'';
+  document.getElementById('f_qty').value='1';
+  document.getElementById('f_low').value='1';
+  document.getElementById('f_exp').value='';
+  document.getElementById('f_id').value='';
+  document.getElementById('f_barcode').value=(prefill&&prefill.barcode)||'';
+  document.getElementById('lookupMsg').innerHTML='';
+  buildLocSeg((prefill&&prefill.location)||'Pantry');
+  buildQuick();
+  openSheet('addScrim');
+  if(!prefill||!prefill.name) setTimeout(function(){document.getElementById('f_name').focus();},250);
+}
+function openEdit(id){
+  var it=find(id); if(!it)return; editingId=id;
+  document.getElementById('addTitle').textContent='Edit item';
+  document.getElementById('delBtn').style.display='block';
+  document.getElementById('f_name').value=it.name;
+  document.getElementById('f_qty').value=it.qty;
+  document.getElementById('f_low').value=it.low;
+  document.getElementById('f_exp').value=it.expiry||'';
+  document.getElementById('f_id').value=it.id;
+  document.getElementById('f_barcode').value=it.barcode||'';
+  document.getElementById('lookupMsg').innerHTML='';
+  document.getElementById('quickWrap').style.display='none';
+  buildLocSeg(it.location);
+  openSheet('addScrim');
+}
+function buildLocSeg(sel){
+  var h=''; LOCATIONS.forEach(function(l){ h+='<div class="o'+(l===sel?' on':'')+'" data-loc="'+l+'" onclick="pickLoc(this)">'+LOC_EMOJI[l]+' '+l+'</div>'; });
+  document.getElementById('f_loc').innerHTML=h;
+}
+function pickLoc(e){ var p=e.parentNode.querySelectorAll('.o'); for(var i=0;i<p.length;i++)p[i].classList.remove('on'); e.classList.add('on'); }
+function selectedLoc(){ var on=document.querySelector('#f_loc .o.on'); return on?on.getAttribute('data-loc'):'Pantry'; }
+function buildQuick(){
+  // suggest names previously used that aren't currently stocked
+  var have={}; state.items.forEach(function(it){have[it.name.toLowerCase()]=1;});
+  var seen={}, names=[];
+  (state.history||[]).forEach(function(n){ var k=n.toLowerCase(); if(!have[k]&&!seen[k]){seen[k]=1;names.push(n);} });
+  var w=document.getElementById('quickWrap');
+  if(!names.length){ w.style.display='none'; return; }
+  w.style.display='block';
+  document.getElementById('quickRow').innerHTML=names.slice(0,12).map(function(n){
+    return '<div class="q" onclick="quickPick(\''+esc(n).replace(/'/g,"\\'")+'\')">'+emojiFor(n)+' '+esc(n)+'</div>';
+  }).join('');
+}
+function quickPick(n){ document.getElementById('f_name').value=n; }
+function saveItem(){
+  var name=(document.getElementById('f_name').value||'').trim();
+  if(!name){ toast('Give it a name'); return; }
+  var qty=parseFloat(document.getElementById('f_qty').value)||0;
+  var low=parseFloat(document.getElementById('f_low').value)||0;
+  var loc=selectedLoc(); var exp=document.getElementById('f_exp').value||'';
+  var bc=document.getElementById('f_barcode').value||'';
+  if(editingId){
+    var it=find(editingId); if(it){ it.name=name;it.qty=qty;it.low=low;it.location=loc;it.expiry=exp;it.barcode=bc; }
+  } else {
+    // merge if same name already exists
+    var ex=state.items.filter(function(x){return x.name.toLowerCase()===name.toLowerCase();})[0];
+    if(ex){ ex.qty=Math.round((ex.qty+qty)*100)/100; ex.location=loc; }
+    else state.items.push({id:uid(),name:name,qty:qty,low:low,location:loc,barcode:bc,expiry:exp,addedAt:Date.now()});
+    // remove from shopping list if it was there
+    state.shopping=state.shopping.filter(function(s){return s.name.toLowerCase()!==name.toLowerCase();});
+  }
+  rememberName(name);
+  closeSheet('addScrim'); persist(); render(); toast('✓ Saved');
+}
+function deleteItem(){
+  if(!editingId)return;
+  if(confirm('Delete this item entirely? (Use "used up" if you just ran out.)')){
+    state.items=state.items.filter(function(x){return x.id!==editingId;});
+    closeSheet('addScrim'); persist(); render(); toast('Deleted');
+  }
+}
+function rememberName(n){ if(!state.history)state.history=[]; var k=n.toLowerCase(); state.history=state.history.filter(function(x){return x.toLowerCase()!==k;}); state.history.unshift(n); state.history=state.history.slice(0,60); }
+
+/* ---------- barcode scanning ---------- */
+function openScan(){
+  openSheet('scanScrim');
+  var hint=document.getElementById('scanHint');
+  hint.textContent='Point your camera at a product barcode…';
+  if(location.protocol==='file:'){ hint.innerHTML='⚠️ The camera only works on the hosted (https) version. Open DuetPantry from its web address / home-screen icon, not as a file.'; return; }
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){ hint.textContent='This browser won’t allow camera access here — type the item instead.'; return; }
+  if(!window.ZXing){ hint.textContent='Scanner didn’t load (offline?) — type it instead.'; return; }
+  try{
+    codeReader=new ZXing.BrowserMultiFormatReader();
+    codeReader.decodeFromConstraints(
+      {video:{facingMode:{ideal:'environment'}}}, 'reader',
+      function(result,err){
+        if(result){ var code=result.getText(); stopScan(); onBarcode(code); }
+      }
+    ).catch(function(e){ hint.textContent='Camera unavailable ('+((e&&e.name)||'error')+') — type the item instead.'; });
+  }catch(e){ hint.textContent='Camera unavailable — type the item instead.'; }
+}
+function stopScan(){ if(codeReader){ try{codeReader.reset();}catch(e){} codeReader=null; } }
+function closeScan(){ stopScan(); closeSheet('scanScrim'); }
+function onBarcode(code){
+  closeSheet('scanScrim');
+  // already have it? just bump qty
+  var ex=state.items.filter(function(it){return it.barcode===code;})[0];
+  if(ex){ ex.qty=Math.round((ex.qty+1)*100)/100; persist(); render(); toast('＋1 '+ex.name); return; }
+  // open add sheet & look up product name
+  openAdd({barcode:code});
+  document.getElementById('lookupMsg').innerHTML='<div class="lookup"><span class="spinner"></span> Looking up product…</div>';
+  lookupProduct(code);
+}
+function lookupProduct(code){
+  fetch('https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(code)+'.json?fields=product_name,brands,generic_name')
+    .then(function(r){return r.json()})
+    .then(function(d){
+      var lm=document.getElementById('lookupMsg');
+      if(d && d.status===1 && d.product){
+        var nm=d.product.product_name||d.product.generic_name||'';
+        var br=d.product.brands?(d.product.brands.split(',')[0]):'';
+        var full=(nm||'').trim(); if(br && full && full.toLowerCase().indexOf(br.toLowerCase())<0) full=br+' '+full;
+        if(full){ document.getElementById('f_name').value=full; lm.innerHTML='<div class="lookup">✓ Found: '+esc(full)+'</div>'; }
+        else lm.innerHTML='<div class="lookup">Found product but no name — type it.</div>';
+      } else {
+        lm.innerHTML='<div class="lookup">Not in database (barcode '+esc(code)+') — type the name.</div>';
+      }
+    })
+    .catch(function(){ document.getElementById('lookupMsg').innerHTML='<div class="lookup">Offline — type the name.</div>'; });
+}
+
+/* ---------- import / export ---------- */
+function exportData(){
+  closeSheet('menuScrim');
+  var blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
+  var a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='duetpantry_backup.json'; a.click(); toast('Exported');
+}
+function importData(e){
+  var f=e.target.files[0]; if(!f)return; var r=new FileReader();
+  r.onload=function(){ try{ var d=JSON.parse(r.result); if(d.items){ state=d; if(!state.shopping)state.shopping=[]; persist(); render(); closeSheet('menuScrim'); toast('Imported'); } else toast('Not a pantry file'); }catch(err){ toast('Bad file'); } };
+  r.readAsText(f);
+}
+
+/* ---------- sheet plumbing ---------- */
+function openSheet(id){ document.getElementById(id).classList.add('show'); }
+function closeSheet(id){ document.getElementById(id).classList.remove('show'); if(id==='scanScrim')stopScan(); }
+document.querySelectorAll('.scrim').forEach(function(sc){ sc.addEventListener('click',function(e){ if(e.target===sc){ sc.classList.remove('show'); stopScan(); } }); });
+// long-press logo / tap cloud-area double for menu
+document.querySelector('.logo').addEventListener('click',function(){ openSheet('menuScrim'); });
+
+/* ---------- boot ---------- */
+// Cross-device sync: whole-document last-write-wins, keyed on updatedAt.
+function pullCloud(){
+  setSync('busy','Syncing…');
+  fetch(FIREBASE_URL+'.json',{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){
+    if(d && typeof d==='object' && (d.items||d.shopping)){
+      var cloudU=d.updatedAt||0, localU=state.updatedAt||0;
+      if(cloudU>localU){
+        state=d; if(!state.items)state.items=[]; if(!state.shopping)state.shopping=[];
+        try{localStorage.setItem(LS_KEY,JSON.stringify(state));}catch(e){}
+        render(); setSync('on','Synced');
+      } else if(localU>cloudU){ cloudSave(); }   // this device is ahead — push
+      else setSync('on','Synced');
+    } else {
+      if(state.items.length||state.shopping.length) cloudSave();  // nothing in cloud yet
+      else setSync('on','Synced');
+    }
+  }).catch(function(){ setSync('off','Offline'); });
+}
+function boot(){
+  load(); render(); pullCloud();
+  // re-sync whenever the app comes back to the foreground, and every 20s while open
+  document.addEventListener('visibilitychange',function(){ if(!document.hidden) pullCloud(); });
+  window.addEventListener('focus',function(){ pullCloud(); });
+  setInterval(function(){ if(!document.hidden) pullCloud(); },20000);
+}
+boot();
+</script>
+</body>
+</html>
