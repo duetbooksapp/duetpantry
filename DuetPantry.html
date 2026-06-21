@@ -28,6 +28,24 @@
   body.light .tagstale{background:#f4e6c8;color:#92610a}
   body.light .recipe-uses{background:#f4e6c8;color:#86570a}
   body.light .recipe-grab{color:#0c7d72}
+  /* larger-text accessibility modes (scales type, keeps single-column layout) */
+  body.txt-lg .mini{font-size:13px}
+  body.txt-lg .group-h,body.txt-lg .info .sub,body.txt-lg .recipe-uses,body.txt-lg label.fld{font-size:14px}
+  body.txt-lg .chip,body.txt-lg .recipe-have,body.txt-lg .recipe-steps,body.txt-lg .recipe-grab,body.txt-lg .scanhint,body.txt-lg .menu-title,body.txt-lg .mb{font-size:15px}
+  body.txt-lg .tab,body.txt-lg .webcard-nm,body.txt-lg .who-card,body.txt-lg .comp-nm{font-size:16px}
+  body.txt-lg .search input,body.txt-lg .btn,body.txt-lg input.f,body.txt-lg select.f,body.txt-lg textarea.f{font-size:18px}
+  body.txt-lg .info .nm,body.txt-lg .qty .v{font-size:19px}
+  body.txt-lg .recipe-h{font-size:20px}
+  body.txt-lg .qty button{font-size:22px}
+  body.txt-xl .mini{font-size:14px}
+  body.txt-xl .group-h,body.txt-xl .recipe-uses,body.txt-xl label.fld{font-size:15px}
+  body.txt-xl .info .sub,body.txt-xl .chip,body.txt-xl .scanhint,body.txt-xl .menu-title,body.txt-xl .mb{font-size:16px}
+  body.txt-xl .recipe-have,body.txt-xl .recipe-steps,body.txt-xl .recipe-grab{font-size:17px}
+  body.txt-xl .tab,body.txt-xl .webcard-nm,body.txt-xl .who-card,body.txt-xl .comp-nm{font-size:18px}
+  body.txt-xl .search input,body.txt-xl .btn,body.txt-xl input.f,body.txt-xl select.f,body.txt-xl textarea.f{font-size:20px}
+  body.txt-xl .info .nm,body.txt-xl .qty .v{font-size:23px}
+  body.txt-xl .recipe-h{font-size:24px}
+  body.txt-xl .qty button{font-size:26px}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--txt);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
@@ -258,6 +276,13 @@
     <div class="menu-row">
       <div class="mb" onclick="copyPantryLink()">🔗 Copy this pantry's link</div>
       <div class="mb" onclick="newPantry()">➕ New / switch pantry</div>
+    </div>
+    <div class="who-card">🔠 Text size
+      <div class="seg" style="margin-top:8px">
+        <div class="o" id="ts-normal" onclick="setTextSize('normal')">Normal</div>
+        <div class="o" id="ts-lg" onclick="setTextSize('lg')">Large</div>
+        <div class="o" id="ts-xl" onclick="setTextSize('xl')">X-Large</div>
+      </div>
     </div>
     <div class="menu-row">
       <div class="mb" onclick="manualSync()">☁️ Back up now</div>
@@ -1143,7 +1168,7 @@ function pullCloud(){
         state=d; if(!state.items)state.items=[]; if(!state.shopping)state.shopping=[];
         if(!state.name){ try{ var sn=localStorage.getItem('duetpantry_name_'+PANTRY_KEY); if(sn) state.name=sn; }catch(e){} }
         try{localStorage.setItem(LS_KEY,JSON.stringify(state));}catch(e){}
-        migrate(); render(); setSync('on','Synced');
+        migrate(); applyTextSize(state.textSize||'normal'); render(); setSync('on','Synced');
       } else if(localU>cloudU){ cloudSave(); }   // this device is ahead — push
       else setSync('on','Synced');
     } else {
@@ -1159,6 +1184,23 @@ function applyTheme(t){
   var m=document.querySelector('meta[name=theme-color]'); if(m) m.setAttribute('content', t==='light' ? '#0d9488' : '#0f766e');
 }
 function initTheme(){ var t='dark'; try{ t=localStorage.getItem('duetpantry_theme')||'dark'; }catch(e){} applyTheme(t); }
+// ---- Text size (accessibility) — synced to the pantry so it follows the user across devices ----
+function applyTextSize(s){
+  document.body.classList.remove('txt-lg','txt-xl');
+  if(s==='lg') document.body.classList.add('txt-lg');
+  else if(s==='xl') document.body.classList.add('txt-xl');
+  ['normal','lg','xl'].forEach(function(k){ var e=document.getElementById('ts-'+k); if(e) e.classList.toggle('on', k===s); });
+}
+function initTextSize(){
+  var s='normal';
+  if(state && state.textSize) s=state.textSize;
+  else { try{ s=localStorage.getItem('duetpantry_textsize')||'normal'; }catch(e){} }
+  applyTextSize(s);
+}
+function setTextSize(s){
+  try{ localStorage.setItem('duetpantry_textsize', s); }catch(e){}
+  state.textSize=s; applyTextSize(s); persist();   // persist → syncs to this pantry's other devices
+}
 function toggleTheme(){
   var next=document.body.classList.contains('light') ? 'dark' : 'light';
   try{ localStorage.setItem('duetpantry_theme', next); }catch(e){}
@@ -1166,7 +1208,7 @@ function toggleTheme(){
 }
 function boot(){
   initTheme();
-  load(); render(); pullCloud();
+  load(); initTextSize(); render(); pullCloud();
   // re-sync whenever the app comes back to the foreground, and every 20s while open
   document.addEventListener('visibilitychange',function(){ if(!document.hidden) pullCloud(); });
   window.addEventListener('focus',function(){ pullCloud(); });
