@@ -235,7 +235,7 @@
       <div class="mb" onclick="restoreCloud()">⬇️ Restore from cloud</div>
     </div>
     <div class="menu-row">
-      <div class="mb" onclick="openImportList()">📝 Import shopping list → pantry</div>
+      <div class="mb" onclick="openImportList()">📝 Import list / 📷 receipt → pantry</div>
     </div>
     <div class="menu-row">
       <div class="mb" onclick="exportData()">📤 Export JSON</div>
@@ -250,8 +250,10 @@
 <div class="scrim" id="importListScrim">
   <div class="sheet">
     <div class="grip"></div>
-    <h2>Import a shopping list</h2>
-    <label class="fld">Paste your list — one item per line</label>
+    <h2>Import items</h2>
+    <button class="btn gho" style="margin-top:0" onclick="document.getElementById('receiptFile').click()">📷 Scan a receipt (OCR)</button>
+    <input type="file" id="receiptFile" accept="image/*" capture="environment" style="display:none" onchange="onReceiptFile(event)">
+    <label class="fld">…or paste a list — one item per line</label>
     <textarea class="f" id="impText" placeholder="Eggs
 Milk
 Olive oil
@@ -982,6 +984,55 @@ function openImportList(){
   document.getElementById('impMsg').textContent='';
   buildSeg('imp_loc','Pantry');
   openSheet('importListScrim');
+}
+// ---- Receipt OCR (Tesseract.js, lazy-loaded, in-browser) ----
+function ensureTesseract(cb){
+  if(window.Tesseract) return cb();
+  var s=document.createElement('script');
+  s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+  s.onload=function(){ cb(); };
+  s.onerror=function(){ document.getElementById('impMsg').textContent='Couldn’t load the OCR engine (need internet the first time).'; };
+  document.head.appendChild(s);
+}
+function onReceiptFile(e){
+  var f=e.target.files[0]; if(!f) return; e.target.value='';
+  var msg=document.getElementById('impMsg');
+  msg.innerHTML='<span class="spinner"></span> Loading OCR…';
+  ensureTesseract(function(){
+    msg.innerHTML='<span class="spinner"></span> Reading receipt… 0%';
+    Tesseract.recognize(f,'eng',{logger:function(m){
+      if(m.status==='recognizing text') msg.innerHTML='<span class="spinner"></span> Reading receipt… '+Math.round((m.progress||0)*100)+'%';
+    }}).then(function(res){
+      var items=cleanReceiptLines((res&&res.data&&res.data.text)||'');
+      var ta=document.getElementById('impText'); var ex=(ta.value||'').trim();
+      ta.value=(ex?ex+'\n':'')+items.join('\n');
+      msg.textContent=items.length? '✓ Found '+items.length+' possible items — edit/remove any junk below, then Add.' : 'No clear items found — try a straighter, well-lit photo or type them in.';
+    }).catch(function(){ msg.textContent='OCR failed — try a clearer, straight-on photo.'; });
+  });
+}
+// Heuristic receipt cleaner: keep item-like lines, drop totals/prices/store junk.
+function cleanReceiptLines(text){
+  var junk=/^(sub.?total|total|tax|cash|change|visa|debit|credit|master|amex|discover|balance|tend|account|auth|approv|ref\b|terminal|trans|invoice|receipt|order|store|tel|phone|fax|www\.|http|member|loyalty|reward|points|savings|you saved|thank|welcome|cashier|reg\b|lane|qty|price|date|time|gst|hst|pst|vat|subt|net\b|payment|card|chip|sale|return|customer|survey|aid|seq|barcode|items? sold|number of)/i;
+  var out=[], seen={};
+  (text||'').split(/\n/).forEach(function(raw){
+    var line=raw.replace(/\s+/g,' ').trim();
+    var probe=line.replace(/^[^A-Za-z]+/,'').toLowerCase();   // ignore leading #, *, digits
+    if(!line || junk.test(probe)) return;
+    var name=line
+      .replace(/\$?\d+[.,]\d{2}\s*[A-Z]{0,2}$/,'')        // trailing 1.99 / $1.99 F
+      .replace(/\s+\d+(\.\d+)?\s*(lb|oz|kg|g|ea|ct|pk|x)\b.*$/i,'') // weight/qty tails
+      .replace(/^\d{4,}\s*/,'')                            // leading SKU/UPC
+      .replace(/\s{2,}.*\d.*$/,'')                          // trailing numeric columns
+      .replace(/[^A-Za-z0-9%&'.\- ]/g,' ')                  // strip OCR noise chars
+      .replace(/\s+/g,' ').trim();
+    var letters=(name.match(/[A-Za-z]/g)||[]).length;
+    if(letters<3 || /^\d+$/.test(name)) return;
+    if((name.match(/\d+/g)||[]).length>=2) return;          // codes/dates: ≥2 number groups
+    if(junk.test(name.toLowerCase())) return;
+    var key=name.toLowerCase(); if(seen[key]) return; seen[key]=1;
+    out.push(name);
+  });
+  return out;
 }
 function doImportList(){
   var raw=document.getElementById('impText').value||'';
