@@ -28,6 +28,9 @@
   .cloud{font-size:12px;color:#d7fff7;display:flex;align-items:center;gap:5px;background:#ffffff1a;padding:5px 9px;border-radius:20px}
   .dot{width:8px;height:8px;border-radius:50%;background:var(--green)}
   .dot.off{background:#9ca3af}.dot.busy{background:var(--amber)}
+  .who{margin-top:10px;display:inline-block;font-size:12px;font-weight:700;color:#d7fff7;background:#ffffff1f;padding:5px 11px;border-radius:20px;cursor:pointer}
+  .who-card{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:11px 13px;margin-bottom:10px;font-size:14px;color:var(--mut)}
+  .who-card b{color:var(--txt);font-weight:700}
   .search{margin-top:12px;position:relative}
   .search input{width:100%;padding:12px 14px 12px 40px;border-radius:12px;border:none;
     background:#ffffff22;color:#fff;font-size:16px;outline:none}
@@ -159,6 +162,7 @@
       <h1><span class="logo">🥫</span> DuetPantry</h1>
       <div class="cloud" onclick="manualSync()"><span class="dot" id="syncDot"></span><span id="syncTxt">Synced</span></div>
     </div>
+    <div class="who" id="whoPill" onclick="openSheet('menuScrim')"></div>
     <div class="search">
       <span class="ic">🔎</span>
       <input id="search" placeholder="Do I have…?" oninput="render()" autocomplete="off">
@@ -230,6 +234,11 @@
   <div class="sheet">
     <div class="grip"></div>
     <h2>Pantry options</h2>
+    <div class="who-card">👤 You're viewing <b id="menuWho"></b></div>
+    <div class="menu-row">
+      <div class="mb" onclick="copyPantryLink()">🔗 Copy this pantry's link</div>
+      <div class="mb" onclick="newPantry()">➕ New / switch pantry</div>
+    </div>
     <div class="menu-row">
       <div class="mb" onclick="manualSync()">☁️ Back up now</div>
       <div class="mb" onclick="restoreCloud()">⬇️ Restore from cloud</div>
@@ -284,8 +293,45 @@ Rice"></textarea>
 <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
 <script>
 /* ============ DuetPantry — single-file pantry tracker ============ */
-var FIREBASE_URL = 'https://duet-crm-default-rtdb.firebaseio.com/duetpantry/steve_maxim';
-var LS_KEY = 'duetpantry_state_v1';
+// ---- Multi-pantry: each person's data lives at /duetpantry/<key>, keyed by ?p= in their link ----
+var PANTRY_BASE = 'https://duet-crm-default-rtdb.firebaseio.com/duetpantry';
+function initPantryKey(){
+  var sp=new URLSearchParams(location.search);
+  var pk=(sp.get('p')||'').toLowerCase().replace(/[^a-z0-9_\-]/g,'');
+  var nm=sp.get('n');
+  if(!pk){ try{ pk=localStorage.getItem('duetpantry_key')||''; }catch(e){} }
+  if(!pk) pk='steve_maxim';   // default = original pantry, so existing link/icon is unaffected
+  try{ localStorage.setItem('duetpantry_key', pk); if(nm) localStorage.setItem('duetpantry_name_'+pk, nm); }catch(e){}
+  return pk;
+}
+var PANTRY_KEY = initPantryKey();
+var FIREBASE_URL = PANTRY_BASE+'/'+PANTRY_KEY;
+var LS_KEY = 'duetpantry_state_v1_'+PANTRY_KEY;   // per-pantry local cache
+function pantryDisplayName(){
+  if(state && state.name) return state.name;
+  var n=''; try{ n=localStorage.getItem('duetpantry_name_'+PANTRY_KEY)||''; }catch(e){}
+  if(n) return n;
+  var base=PANTRY_KEY.replace(/-[a-z0-9]{3,6}$/,'').replace(/[_\-]+/g,' ').trim();
+  base=base.replace(/\b\w/g,function(c){return c.toUpperCase();});
+  return base ? base+'’s Pantry' : 'My Pantry';
+}
+function pantryLink(){ return location.origin+location.pathname+'?p='+encodeURIComponent(PANTRY_KEY)+'&n='+encodeURIComponent(pantryDisplayName()); }
+function copyPantryLink(){
+  var url=pantryLink();
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(function(){toast('🔗 Link copied — share it');},function(){prompt('Copy this pantry link:',url);});
+  else prompt('Copy this pantry link:',url);
+}
+function newPantry(){
+  var name=prompt('Name the new pantry (e.g. Amanda’s Pantry):'); if(!name) return;
+  var slug=name.toLowerCase().replace(/[’']/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').replace(/-?s-pantry$|-?pantry$/,'')||'pantry';
+  var key=slug+'-'+Math.random().toString(36).slice(2,6);
+  location.href=location.pathname+'?p='+encodeURIComponent(key)+'&n='+encodeURIComponent(name);
+}
+function setWho(){
+  var nm=pantryDisplayName();
+  var a=document.getElementById('whoPill'); if(a) a.textContent='👤 '+nm;
+  var b=document.getElementById('menuWho'); if(b) b.textContent=nm;
+}
 var LOCATIONS = ['Fridge','Freezer','Pantry','Spices','Other'];
 var LOC_EMOJI = {Fridge:'🧊',Freezer:'❄️',Pantry:'🥫',Spices:'🧂',Other:'📦'};
 // "Been a while" nudge — how many days before an item feels old, by location.
@@ -334,7 +380,9 @@ var EMOJI_MAP = [
 function emojiFor(name){ var n=(name||'').toLowerCase(); for(var i=0;i<EMOJI_MAP.length;i++){ if(EMOJI_MAP[i][0].test(n)) return EMOJI_MAP[i][1]; } return '🍽️'; }
 
 /* ---------- persistence ---------- */
-function load(){ try{ var s=localStorage.getItem(LS_KEY); if(s) state=JSON.parse(s); }catch(e){} if(!state.items)state.items=[]; if(!state.shopping)state.shopping=[]; migrate(); }
+function load(){ try{ var s=localStorage.getItem(LS_KEY); if(s) state=JSON.parse(s); }catch(e){} if(!state.items)state.items=[]; if(!state.shopping)state.shopping=[];
+  if(!state.name){ try{ var sn=localStorage.getItem('duetpantry_name_'+PANTRY_KEY); if(sn) state.name=sn; }catch(e){} }
+  migrate(); }
 // Backfill a date on any item that doesn't have one, so the whole pantry is trackable.
 function migrate(){
   var now=Date.now(), changed=false;
@@ -381,6 +429,7 @@ function setLoc(l){ locFilter=l; render(); }
 
 /* ---------- render ---------- */
 function render(){
+  setWho();
   // shopping badge
   var b=document.getElementById('shopBadge');
   if(state.shopping.length){ b.style.display='flex'; b.textContent=state.shopping.length; } else b.style.display='none';
@@ -1072,6 +1121,7 @@ function pullCloud(){
       var cloudU=d.updatedAt||0, localU=state.updatedAt||0;
       if(cloudU>localU){
         state=d; if(!state.items)state.items=[]; if(!state.shopping)state.shopping=[];
+        if(!state.name){ try{ var sn=localStorage.getItem('duetpantry_name_'+PANTRY_KEY); if(sn) state.name=sn; }catch(e){} }
         try{localStorage.setItem(LS_KEY,JSON.stringify(state));}catch(e){}
         migrate(); render(); setSync('on','Synced');
       } else if(localU>cloudU){ cloudSave(); }   // this device is ahead — push
