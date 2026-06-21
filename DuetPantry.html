@@ -84,9 +84,10 @@
   .sheet h2{margin:4px 0 16px;font-size:18px}
   .grip{width:40px;height:4px;background:var(--line);border-radius:2px;margin:0 auto 14px}
   label.fld{display:block;font-size:12px;color:var(--mut);margin:12px 0 5px;font-weight:600}
-  input.f,select.f{width:100%;padding:13px;border-radius:11px;border:1px solid var(--line);
-    background:var(--panel2);color:var(--txt);font-size:16px;outline:none}
-  input.f:focus,select.f:focus{border-color:var(--teal)}
+  input.f,select.f,textarea.f{width:100%;padding:13px;border-radius:11px;border:1px solid var(--line);
+    background:var(--panel2);color:var(--txt);font-size:16px;outline:none;font-family:inherit}
+  textarea.f{resize:vertical;min-height:150px;line-height:1.5}
+  input.f:focus,select.f:focus,textarea.f:focus{border-color:var(--teal)}
   .seg{display:flex;gap:7px;flex-wrap:wrap}
   .seg .o{flex:1;min-width:70px;text-align:center;padding:11px;border-radius:11px;background:var(--panel2);
     border:1px solid var(--line);font-weight:600;font-size:14px;cursor:pointer}
@@ -204,11 +205,33 @@
       <div class="mb" onclick="restoreCloud()">⬇️ Restore from cloud</div>
     </div>
     <div class="menu-row">
+      <div class="mb" onclick="openImportList()">📝 Import shopping list → pantry</div>
+    </div>
+    <div class="menu-row">
       <div class="mb" onclick="exportData()">📤 Export JSON</div>
       <div class="mb" onclick="document.getElementById('importFile').click()">📥 Import JSON</div>
     </div>
     <input type="file" id="importFile" accept="application/json" style="display:none" onchange="importData(event)">
     <button class="btn gho" onclick="closeSheet('menuScrim')">Close</button>
+  </div>
+</div>
+
+<!-- Import shopping list sheet -->
+<div class="scrim" id="importListScrim">
+  <div class="sheet">
+    <div class="grip"></div>
+    <h2>Import a shopping list</h2>
+    <label class="fld">Paste your list — one item per line</label>
+    <textarea class="f" id="impText" placeholder="Eggs
+Milk
+Olive oil
+Canned tomatoes
+Rice"></textarea>
+    <label class="fld">Add them all to…</label>
+    <div class="seg" id="imp_loc"></div>
+    <div class="scanhint" id="impMsg" style="margin:8px 0 0"></div>
+    <button class="btn pri" onclick="doImportList()">Add to pantry</button>
+    <button class="btn gho" onclick="closeSheet('importListScrim')">Cancel</button>
   </div>
 </div>
 
@@ -251,7 +274,14 @@ var EMOJI_MAP = [
 function emojiFor(name){ var n=(name||'').toLowerCase(); for(var i=0;i<EMOJI_MAP.length;i++){ if(EMOJI_MAP[i][0].test(n)) return EMOJI_MAP[i][1]; } return '🍽️'; }
 
 /* ---------- persistence ---------- */
-function load(){ try{ var s=localStorage.getItem(LS_KEY); if(s) state=JSON.parse(s); }catch(e){} if(!state.items)state.items=[]; if(!state.shopping)state.shopping=[]; }
+function load(){ try{ var s=localStorage.getItem(LS_KEY); if(s) state=JSON.parse(s); }catch(e){} if(!state.items)state.items=[]; if(!state.shopping)state.shopping=[]; migrate(); }
+// Backfill a date on any item that doesn't have one, so the whole pantry is trackable.
+function migrate(){
+  var now=Date.now(), changed=false;
+  (state.items||[]).forEach(function(it){ if(!it.addedAt){ it.addedAt=now; changed=true; } });
+  if(changed) persist();   // bumps updatedAt + pushes the dated copy to the cloud
+  return changed;
+}
 function persist(){ state.updatedAt=Date.now(); try{ localStorage.setItem(LS_KEY,JSON.stringify(state)); }catch(e){} scheduleSync(); }
 
 var syncTimer=null;
@@ -335,6 +365,7 @@ function itemCard(it){
   var subs=[];
   if(low) subs.push('<span class="tagy">Running low</span>');
   if(du!==null){ if(du<0) subs.push('<span class="tagr">Expired</span>'); else if(du<=3) subs.push('<span class="tagr">'+du+'d left</span>'); else subs.push('<span style="opacity:.8">exp '+(du)+'d</span>'); }
+  subs.push('<span style="opacity:.7">📅 '+fmtAdded(it.addedAt)+'</span>');
   return '<div class="card'+(low?' low':'')+(expSoon?' exp':'')+'">'+
     '<div class="ic-emoji">'+emojiFor(it.name)+'</div>'+
     '<div class="info" onclick="openEdit(\''+it.id+'\')">'+
@@ -349,6 +380,16 @@ function itemCard(it){
     '</div></div>';
 }
 function fmt(n){ return (Math.round(n*100)/100).toString(); }
+function fmtAdded(ts){
+  if(!ts) return 'no date';
+  var d=new Date(ts), n=new Date();
+  var days=Math.floor((new Date(n.getFullYear(),n.getMonth(),n.getDate()) - new Date(d.getFullYear(),d.getMonth(),d.getDate()))/86400000);
+  if(days<=0) return 'Added today';
+  if(days===1) return 'Added yesterday';
+  if(days<7) return 'Added '+days+'d ago';
+  var mo=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return 'Added '+mo[d.getMonth()]+' '+d.getDate();
+}
 function esc(s){ return (s||'').replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]}); }
 
 function renderShop(){
@@ -445,12 +486,14 @@ function openEdit(id){
   buildLocSeg(it.location);
   openSheet('addScrim');
 }
-function buildLocSeg(sel){
+function buildSeg(id,sel){
   var h=''; LOCATIONS.forEach(function(l){ h+='<div class="o'+(l===sel?' on':'')+'" data-loc="'+l+'" onclick="pickLoc(this)">'+LOC_EMOJI[l]+' '+l+'</div>'; });
-  document.getElementById('f_loc').innerHTML=h;
+  document.getElementById(id).innerHTML=h;
 }
+function segValue(id){ var on=document.querySelector('#'+id+' .o.on'); return on?on.getAttribute('data-loc'):'Pantry'; }
+function buildLocSeg(sel){ buildSeg('f_loc',sel); }
 function pickLoc(e){ var p=e.parentNode.querySelectorAll('.o'); for(var i=0;i<p.length;i++)p[i].classList.remove('on'); e.classList.add('on'); }
-function selectedLoc(){ var on=document.querySelector('#f_loc .o.on'); return on?on.getAttribute('data-loc'):'Pantry'; }
+function selectedLoc(){ return segValue('f_loc'); }
 function buildQuick(){
   // suggest names previously used that aren't currently stocked
   var have={}; state.items.forEach(function(it){have[it.name.toLowerCase()]=1;});
@@ -641,6 +684,36 @@ function importData(e){
   r.readAsText(f);
 }
 
+/* ---------- import a pasted shopping list into the pantry ---------- */
+function openImportList(){
+  closeSheet('menuScrim');
+  document.getElementById('impText').value='';
+  document.getElementById('impMsg').textContent='';
+  buildSeg('imp_loc','Pantry');
+  openSheet('importListScrim');
+}
+function doImportList(){
+  var raw=document.getElementById('impText').value||'';
+  var loc=segValue('imp_loc'), now=Date.now();
+  var lines=raw.split('\n'), added=0, bumped=0;
+  for(var i=0;i<lines.length;i++){
+    var name=lines[i].trim()
+      .replace(/^[-*•·•]\s*/,'')      // bullets
+      .replace(/^\[\s*[xX]?\s*\]\s*/,'')   // [ ] / [x] checkboxes
+      .replace(/^\d+[.)]\s*/,'')           // 1. / 2)
+      .trim();
+    if(!name) continue;
+    var ex=state.items.filter(function(x){return x.name.toLowerCase()===name.toLowerCase();})[0];
+    if(ex){ ex.qty=Math.round((ex.qty+1)*100)/100; if(!ex.addedAt)ex.addedAt=now; bumped++; }
+    else { state.items.push({id:uid(),name:name,qty:1,low:1,location:loc,barcode:'',expiry:'',addedAt:now}); added++; }
+    rememberName(name);
+    state.shopping=state.shopping.filter(function(s){return s.name.toLowerCase()!==name.toLowerCase();});
+  }
+  if(!added && !bumped){ document.getElementById('impMsg').textContent='Nothing to add — paste some items first.'; return; }
+  closeSheet('importListScrim'); persist(); render();
+  toast('✓ Added '+added+' new'+(bumped?', restocked '+bumped:'')+' to pantry');
+}
+
 /* ---------- sheet plumbing ---------- */
 function openSheet(id){ document.getElementById(id).classList.add('show'); }
 function closeSheet(id){ document.getElementById(id).classList.remove('show'); if(id==='scanScrim')stopScan(); }
@@ -658,7 +731,7 @@ function pullCloud(){
       if(cloudU>localU){
         state=d; if(!state.items)state.items=[]; if(!state.shopping)state.shopping=[];
         try{localStorage.setItem(LS_KEY,JSON.stringify(state));}catch(e){}
-        render(); setSync('on','Synced');
+        migrate(); render(); setSync('on','Synced');
       } else if(localU>cloudU){ cloudSave(); }   // this device is ahead — push
       else setSync('on','Synced');
     } else {
