@@ -14,6 +14,20 @@
     --amber:#f59e0b; --red:#ef4444; --green:#22c55e; --blue:#3b82f6;
     --radius:16px; --shadow:0 8px 30px rgba(0,0,0,.35);
   }
+  body.light{
+    --bg:#eef1f7; --panel:#ffffff; --panel2:#eef1f8; --line:#dbe1ee;
+    --txt:#1b2440; --mut:#5d6a86; --teal:#0d9488; --teal2:#0f766e;
+    --amber:#b06a06; --red:#dc2626; --green:#15a34a;
+    --shadow:0 6px 20px rgba(30,50,90,.10);
+  }
+  body.light .card.low{border-color:#e3b873;background:linear-gradient(90deg,#fdf3e0,var(--panel) 60%)}
+  body.light .card.stale{border-color:#e6c489}
+  body.light .card.exp{border-color:#e6a3a3}
+  body.light .tagy{background:#f3e4c6;color:#92610a}
+  body.light .tagr{background:#f7dada;color:#b4231f}
+  body.light .tagstale{background:#f4e6c8;color:#92610a}
+  body.light .recipe-uses{background:#f4e6c8;color:#86570a}
+  body.light .recipe-grab{color:#0c7d72}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--txt);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
@@ -28,6 +42,9 @@
   .cloud{font-size:12px;color:#d7fff7;display:flex;align-items:center;gap:5px;background:#ffffff1a;padding:5px 9px;border-radius:20px}
   .dot{width:8px;height:8px;border-radius:50%;background:var(--green)}
   .dot.off{background:#9ca3af}.dot.busy{background:var(--amber)}
+  .brand-right{display:flex;align-items:center;gap:8px}
+  .theme-btn{background:#ffffff22;border:none;color:#fff;font-size:15px;width:33px;height:33px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;line-height:1}
+  .theme-btn:active{background:#ffffff33}
   .who{margin-top:10px;display:inline-block;font-size:12px;font-weight:700;color:#d7fff7;background:#ffffff1f;padding:5px 11px;border-radius:20px;cursor:pointer}
   .who-card{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:11px 13px;margin-bottom:10px;font-size:14px;color:var(--mut)}
   .who-card b{color:var(--txt);font-weight:700}
@@ -160,7 +177,10 @@
   <header>
     <div class="brand">
       <h1><span class="logo">🥫</span> DuetPantry</h1>
-      <div class="cloud" onclick="manualSync()"><span class="dot" id="syncDot"></span><span id="syncTxt">Synced</span></div>
+      <div class="brand-right">
+        <button class="theme-btn" id="themeBtn" onclick="toggleTheme()" aria-label="Toggle light/dark">🌙</button>
+        <div class="cloud" onclick="manualSync()"><span class="dot" id="syncDot"></span><span id="syncTxt">Synced</span></div>
+      </div>
     </div>
     <div class="who" id="whoPill" onclick="openSheet('menuScrim')"></div>
     <div class="search">
@@ -1132,7 +1152,20 @@ function pullCloud(){
     }
   }).catch(function(){ setSync('off','Offline'); });
 }
+// ---- Light / dark theme ----
+function applyTheme(t){
+  document.body.classList.toggle('light', t==='light');
+  var b=document.getElementById('themeBtn'); if(b) b.textContent = (t==='light' ? '☀️' : '🌙');
+  var m=document.querySelector('meta[name=theme-color]'); if(m) m.setAttribute('content', t==='light' ? '#0d9488' : '#0f766e');
+}
+function initTheme(){ var t='dark'; try{ t=localStorage.getItem('duetpantry_theme')||'dark'; }catch(e){} applyTheme(t); }
+function toggleTheme(){
+  var next=document.body.classList.contains('light') ? 'dark' : 'light';
+  try{ localStorage.setItem('duetpantry_theme', next); }catch(e){}
+  applyTheme(next);
+}
 function boot(){
+  initTheme();
   load(); render(); pullCloud();
   // re-sync whenever the app comes back to the foreground, and every 20s while open
   document.addEventListener('visibilitychange',function(){ if(!document.hidden) pullCloud(); });
