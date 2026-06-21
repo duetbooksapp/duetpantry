@@ -1162,13 +1162,13 @@ document.querySelector('.logo').addEventListener('click',function(){ openSheet('
 function pullCloud(){
   setSync('busy','Syncing…');
   fetch(FIREBASE_URL+'.json',{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){
-    if(d && typeof d==='object' && (d.items||d.shopping)){
+    if(d && typeof d==='object' && (d.items||d.shopping||d.updatedAt)){
       var cloudU=d.updatedAt||0, localU=state.updatedAt||0;
       if(cloudU>localU){
         state=d; if(!state.items)state.items=[]; if(!state.shopping)state.shopping=[];
         if(!state.name){ try{ var sn=localStorage.getItem('duetpantry_name_'+PANTRY_KEY); if(sn) state.name=sn; }catch(e){} }
         try{localStorage.setItem(LS_KEY,JSON.stringify(state));}catch(e){}
-        migrate(); applyTextSize(state.textSize||'normal'); render(); setSync('on','Synced');
+        migrate(); applyTheme(state.theme||'dark'); applyTextSize(state.textSize||'normal'); render(); setSync('on','Synced');
       } else if(localU>cloudU){ cloudSave(); }   // this device is ahead — push
       else setSync('on','Synced');
     } else {
@@ -1182,14 +1182,21 @@ function applyTheme(t){
   document.body.classList.toggle('light', t==='light');
   var b=document.getElementById('themeBtn'); if(b) b.textContent = (t==='light' ? '☀️' : '🌙');
   var m=document.querySelector('meta[name=theme-color]'); if(m) m.setAttribute('content', t==='light' ? '#0d9488' : '#0f766e');
+  try{ localStorage.setItem('duetpantry_theme', t); }catch(e){}   // cache for instant next load
 }
-function initTheme(){ var t='dark'; try{ t=localStorage.getItem('duetpantry_theme')||'dark'; }catch(e){} applyTheme(t); }
+function initTheme(){
+  var t='dark';
+  if(state && state.theme) t=state.theme;                         // synced per-pantry, follows the user
+  else { try{ t=localStorage.getItem('duetpantry_theme')||'dark'; }catch(e){} }
+  applyTheme(t);
+}
 // ---- Text size (accessibility) — synced to the pantry so it follows the user across devices ----
 function applyTextSize(s){
   document.body.classList.remove('txt-lg','txt-xl');
   if(s==='lg') document.body.classList.add('txt-lg');
   else if(s==='xl') document.body.classList.add('txt-xl');
   ['normal','lg','xl'].forEach(function(k){ var e=document.getElementById('ts-'+k); if(e) e.classList.toggle('on', k===s); });
+  try{ localStorage.setItem('duetpantry_textsize', s); }catch(e){}   // cache for instant next load
 }
 function initTextSize(){
   var s='normal';
@@ -1203,12 +1210,11 @@ function setTextSize(s){
 }
 function toggleTheme(){
   var next=document.body.classList.contains('light') ? 'dark' : 'light';
-  try{ localStorage.setItem('duetpantry_theme', next); }catch(e){}
-  applyTheme(next);
+  state.theme=next; applyTheme(next); persist();                  // persist → follows the user across devices
 }
 function boot(){
   initTheme();
-  load(); initTextSize(); render(); pullCloud();
+  load(); initTheme(); initTextSize(); render(); pullCloud();
   // re-sync whenever the app comes back to the foreground, and every 20s while open
   document.addEventListener('visibilitychange',function(){ if(!document.hidden) pullCloud(); });
   window.addEventListener('focus',function(){ pullCloud(); });
