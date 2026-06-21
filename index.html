@@ -59,6 +59,8 @@
   .info .nm{font-weight:600;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .info .sub{font-size:12px;color:var(--mut);margin-top:2px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .tagy{background:#7c531033;color:var(--amber);padding:1px 7px;border-radius:8px;font-weight:600;font-size:11px}
+  .tagstale{background:#6b4a1a33;color:#fbbf24;padding:1px 7px;border-radius:8px;font-weight:600;font-size:11px}
+  .card.stale{border-color:#5a431a}
   .tagr{background:#7c1d1d44;color:#fca5a5;padding:1px 7px;border-radius:8px;font-weight:600;font-size:11px}
   .qty{display:flex;align-items:center;gap:0;background:var(--panel2);border-radius:12px;overflow:hidden;flex-shrink:0}
   .qty button{width:38px;height:38px;border:none;background:transparent;color:var(--txt);font-size:20px;font-weight:700;cursor:pointer}
@@ -244,6 +246,16 @@ var FIREBASE_URL = 'https://duet-crm-default-rtdb.firebaseio.com/duetpantry/stev
 var LS_KEY = 'duetpantry_state_v1';
 var LOCATIONS = ['Fridge','Freezer','Pantry','Spices','Other'];
 var LOC_EMOJI = {Fridge:'🧊',Freezer:'❄️',Pantry:'🥫',Spices:'🧂',Other:'📦'};
+// "Been a while" nudge — how many days before an item feels old, by location.
+var STALE_DAYS = {Fridge:10, Freezer:120, Pantry:365, Spices:730, Other:180};
+// Known fast-spoiling items get a much shorter window no matter where they live.
+var PERISHABLE_DAYS = 6;
+var PERISHABLE = [/milk|cream|half.?and.?half/, /yog(h)?urt/, /cheese.*fresh|ricotta|cottage/,
+  /fish|salmon|tuna|cod|tilapia|shrimp|prawn|seafood/, /chicken|turkey|poultry/,
+  /beef|pork|steak|meat|bacon|sausage|deli|ham|hot ?dog/, /egg/,
+  /lettuce|spinach|kale|salad|greens|arugula|herb|cilantro|basil|parsley|mint|dill/,
+  /berr|strawberr|raspberr|blueberr|blackberr/, /mushroom/, /avocado/, /banana/,
+  /tomato/, /leftover/, /tofu/, /sprout/, /grape/];
 
 var state = { items:[], shopping:[], updatedAt:0 };
 var tab = 'have';
@@ -344,9 +356,10 @@ function render(){
       (state.items.length? 'No matches.' : 'Your kitchen is empty.<br>Scan a barcode or tap Add to start.')+'</div></div>';
     return;
   }
-  // sort: low stock first, then by location order, then name
+  // sort: low stock first, then "been a while", then by location, then name
   items.sort(function(a,b){
     var al=isLow(a)?0:1, bl=isLow(b)?0:1; if(al!==bl)return al-bl;
+    var as=isStale(a)?0:1, bs=isStale(b)?0:1; if(as!==bs)return as-bs;
     var lo=LOCATIONS.indexOf(a.location)-LOCATIONS.indexOf(b.location); if(lo)return lo;
     return a.name.localeCompare(b.name);
   });
@@ -360,13 +373,22 @@ function render(){
   el.innerHTML=html;
 }
 function isLow(it){ return it.low>0 && it.qty<=it.low; }
+function ageDays(it){ if(!it.addedAt) return 0; var d=new Date(it.addedAt), n=new Date();
+  return Math.floor((new Date(n.getFullYear(),n.getMonth(),n.getDate())-new Date(d.getFullYear(),d.getMonth(),d.getDate()))/86400000); }
+function staleAfter(it){ var nm=(it.name||'').toLowerCase();
+  for(var i=0;i<PERISHABLE.length;i++){ if(PERISHABLE[i].test(nm)) return PERISHABLE_DAYS; }
+  return STALE_DAYS[it.location]||180; }
+// Nudge only when there's no explicit expiry date (that signal takes over if set).
+function isStale(it){ return !it.expiry && ageDays(it) >= staleAfter(it); }
 function itemCard(it){
   var low=isLow(it); var du=daysUntil(it.expiry); var expSoon=du!==null && du<=3;
+  var stale=isStale(it);
   var subs=[];
   if(low) subs.push('<span class="tagy">Running low</span>');
+  if(stale) subs.push('<span class="tagstale">🕒 '+ageDays(it)+'d — been a while</span>');
   if(du!==null){ if(du<0) subs.push('<span class="tagr">Expired</span>'); else if(du<=3) subs.push('<span class="tagr">'+du+'d left</span>'); else subs.push('<span style="opacity:.8">exp '+(du)+'d</span>'); }
   subs.push('<span style="opacity:.7">📅 '+fmtAdded(it.addedAt)+'</span>');
-  return '<div class="card'+(low?' low':'')+(expSoon?' exp':'')+'">'+
+  return '<div class="card'+(low?' low':'')+(stale&&!low?' stale':'')+(expSoon?' exp':'')+'">'+
     '<div class="ic-emoji">'+emojiFor(it.name)+'</div>'+
     '<div class="info" onclick="openEdit(\''+it.id+'\')">'+
       '<div class="nm">'+esc(it.name)+'</div>'+
