@@ -69,6 +69,18 @@
   .qty button.minus{color:var(--red)}.qty button.plus{color:var(--green)}
   .row-act{display:flex;flex-direction:column;gap:4px;flex-shrink:0}
   .mini{font-size:11px;color:var(--mut);background:none;border:none;cursor:pointer;padding:2px 4px}
+  .menu-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 2px 8px}
+  .menu-title{font-size:13px;color:var(--mut);font-weight:600}
+  .refresh-btn{background:var(--teal);color:#04201c;border:none;border-radius:11px;padding:9px 13px;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap}
+  .refresh-btn:active{opacity:.85}
+  .recipe{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-bottom:11px;animation:pop .18s ease}
+  .recipe-h{font-size:17px;font-weight:700;margin-bottom:6px}
+  .recipe-uses{font-size:12px;color:#fbbf24;background:#6b4a1a33;display:inline-block;padding:2px 9px;border-radius:9px;font-weight:600;margin-bottom:8px}
+  .recipe-have{font-size:13px;color:var(--txt);margin-bottom:5px;line-height:1.5}
+  .recipe-have b{color:var(--mut);font-weight:600}
+  .recipe-grab{font-size:13px;color:var(--teal);margin-bottom:8px;font-weight:600}
+  .recipe-steps{margin:6px 0 0;padding-left:20px;color:var(--mut);font-size:13px;line-height:1.6}
+  .recipe-steps li{margin-bottom:3px}
   .empty{text-align:center;padding:60px 20px;color:var(--mut)}
   .empty .big{font-size:54px;margin-bottom:12px;opacity:.6}
   .fab{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);
@@ -139,8 +151,9 @@
   </header>
   <main>
     <div class="tabs">
-      <div class="tab on" id="tab-have" onclick="setTab('have')">In My Kitchen</div>
-      <div class="tab" id="tab-shop" onclick="setTab('shop')">Shopping List<span class="badge" id="shopBadge" style="display:none">0</span></div>
+      <div class="tab on" id="tab-have" onclick="setTab('have')">Kitchen</div>
+      <div class="tab" id="tab-menu" onclick="setTab('menu')">🍽️ Menu</div>
+      <div class="tab" id="tab-shop" onclick="setTab('shop')">Shopping<span class="badge" id="shopBadge" style="display:none">0</span></div>
     </div>
     <div id="locFilter" class="loc-filter"></div>
     <div id="list"></div>
@@ -260,6 +273,8 @@ var PERISHABLE = [/milk|cream|half.?and.?half/, /yog(h)?urt/, /cheese.*fresh|ric
 var state = { items:[], shopping:[], updatedAt:0 };
 var tab = 'have';
 var locFilter = 'All';
+var menuMeal = null;   // null = auto by time of day; else 'breakfast'|'lunch'|'dinner'|'treat'
+var menuOffset = 0;    // refresh cycles through matching recipes
 var editingId = null;
 var codeReader = null;
 var scanTrack = null, torchOn = false;
@@ -323,8 +338,10 @@ function daysUntil(d){ if(!d)return null; var ms=new Date(d+'T00:00:00')-new Dat
 /* ---------- tabs & filters ---------- */
 function setTab(t){ tab=t; locFilter='All';
   document.getElementById('tab-have').classList.toggle('on',t==='have');
+  document.getElementById('tab-menu').classList.toggle('on',t==='menu');
   document.getElementById('tab-shop').classList.toggle('on',t==='shop');
   document.getElementById('fab').style.display = t==='have'?'flex':'none';
+  if(t==='menu'){ menuMeal=null; menuOffset=0; }   // fresh: auto-pick meal by time of day
   render();
 }
 function setLoc(l){ locFilter=l; render(); }
@@ -336,6 +353,7 @@ function render(){
   if(state.shopping.length){ b.style.display='flex'; b.textContent=state.shopping.length; } else b.style.display='none';
 
   if(tab==='shop'){ renderShop(); document.getElementById('locFilter').innerHTML=''; return; }
+  if(tab==='menu'){ renderMenu(); document.getElementById('locFilter').innerHTML=''; return; }
 
   var q=(document.getElementById('search').value||'').toLowerCase().trim();
   // location filter chips
@@ -433,6 +451,122 @@ function renderShop(){
   html+='<button class="btn gho" onclick="clearShop()">Clear bought / all</button>';
   el.innerHTML=html;
 }
+
+/* ================= MENU / RECIPES (client-side, offline) ================= */
+// Each recipe: meals it fits, a title, NEED slots (every slot must match a pantry item),
+// NICE slots (used if present), a GRAB list (fresh things to elevate), and quick steps.
+// A "slot" is an array of regexes; it's satisfied if ANY pantry item name matches ANY regex.
+var RECIPES = [
+ // ---- Breakfast ----
+ {m:['breakfast'],t:'Almond-Butter Banana Bowl',need:[[/almond butter|peanut/]],nice:[[/banana/],[/honey/],[/chia|flax|hemp/],[/granola|oat/]],grab:'banana, bread',s:['Spread almond butter on toast or stir into warm oats.','Top with banana, a drizzle of honey, and a sprinkle of chia/hemp.']},
+ {m:['breakfast','treat'],t:'Coconut Chia Pudding',need:[[/chia/],[/coconut milk|leite de coco|condensed milk|cream/]],nice:[[/honey|agave/],[/peach|mandarin|pineapple/],[/cacao|cocoa/]],grab:'fresh fruit',s:['Stir 3 Tbsp chia into 1 cup coconut milk + a little honey.','Chill (or overnight). Top with peaches/mandarin or a dusting of cacao.']},
+ {m:['breakfast'],t:'Jiffy Corn Muffins, Savory',need:[[/corn muffin|jiffy|corn meal|cornbread/]],nice:[[/corn/],[/green chile|jalape/],[/cheese/]],grab:'egg, milk',s:['Make the corn muffin batter; fold in corn + chopped green chiles.','Bake into muffins. Great warm with honey or hot sauce.']},
+ {m:['breakfast'],t:'Quinoa / Brown-Rice Hot Cereal',need:[[/quinoa|buckwheat|brown rice|oat|millet/]],nice:[[/coconut milk|cream|condensed milk/],[/honey|agave/],[/almond butter/],[/hemp|flax|chia/],[/peach|banana/]],grab:'milk, fruit',s:['Simmer the grain in coconut milk or water until creamy.','Sweeten with honey; top with almond butter, seeds, and fruit.']},
+ {m:['breakfast'],t:'Pantry Pancakes',need:[[/baking powder/],[/corn meal|flour|muffin mix|pancake/]],nice:[[/honey|agave|syrup/],[/vanilla/]],grab:'egg, milk',s:['Whisk flour/cornmeal + baking powder + egg + milk to a batter.','Griddle in a little oil; serve with honey or agave.']},
+ {m:['breakfast','treat'],t:'Granola & Fruit Parfait',need:[[/granola/]],nice:[[/peach|mandarin|pineapple/],[/hemp|chia|flax/],[/honey/],[/pudding/]],grab:'yogurt',s:['Layer yogurt (or pudding), granola, and canned fruit.','Finish with seeds and a thread of honey.']},
+ {m:['breakfast','lunch'],t:'Black-Bean Breakfast Tacos',need:[[/taco|tortilla|shell/],[/bean/]],nice:[[/salsa/],[/green chile|jalape/],[/hot sauce|cholula|sriracha/],[/corn/]],grab:'eggs, cilantro',s:['Warm beans with a little salsa and green chiles.','Scramble eggs, fill shells, top with hot sauce.']},
+
+ // ---- Lunch ----
+ {m:['lunch'],t:'Mediterranean Chickpea Salad',need:[[/garbanzo|chickpea/],[/olive/],[/vinegar|olive oil/]],nice:[[/artichoke/],[/jalape/],[/balsamic/]],grab:'cucumber, tomato, feta',s:['Toss chickpeas with chopped olives and artichokes.','Dress with olive oil + red wine vinegar; salt and pepper.']},
+ {m:['lunch'],t:'Tuna Salad / Melt',need:[[/tuna/]],nice:[[/mustard/],[/pickle/],[/olive/],[/jalape/]],grab:'bread, mayo, onion',s:['Mix tuna with mustard (and mayo if you grab it) + diced pickle.','Eat as-is, on crackers, or griddle into a melt with cheese.']},
+ {m:['lunch','dinner'],t:'White Bean & Tomato Soup',need:[[/cannellini|white bean|garbanzo|bean/],[/tomato|diced tomato|tomato sauce/],[/broth/]],nice:[[/olive oil/],[/olive/],[/pasta|orzo|acini|ditalini/]],grab:'onion, garlic',s:['Simmer beans + tomatoes + broth 15 min; mash a few beans to thicken.','Finish with olive oil; add a handful of small pasta if you like.']},
+ {m:['lunch','dinner'],t:'Loaded Ramen Bowl',need:[[/ramen|noodle soup/]],nice:[[/corn/],[/soy|aminos/],[/sesame/],[/sriracha|cholula/],[/spam|chicken|tuna/]],grab:'egg, scallion',s:['Cook the ramen; stir in a spoon of sesame oil + soy.','Top with corn, protein, sriracha and (grab) a soft egg + scallion.']},
+ {m:['lunch'],t:'Chickpea-Tuna Pasta Salad',need:[[/pasta|penne|orzo|acini|spaghetti/],[/olive|artichoke|tomato/]],nice:[[/garbanzo|chickpea/],[/tuna/],[/vinegar|olive oil/]],grab:'parsley',s:['Boil and cool the pasta.','Toss with chickpeas/tuna, olives or artichokes, oil + vinegar.']},
+ {m:['lunch','dinner'],t:'Lentil Soup',need:[[/lentil/],[/broth/]],nice:[[/carrot/],[/diced tomato/],[/chili|cumin|guajillo|arbol/],[/olive oil/]],grab:'onion, celery',s:['Simmer lentils in broth with carrots + diced tomato ~25 min.','Season with cumin/chili; finish with olive oil.']},
+
+ // ---- Dinner ----
+ {m:['dinner'],t:'Chipotle Three-Bean Tamale Pie',need:[[/bean/],[/diced tomato|tomato sauce/],[/corn muffin|jiffy|corn meal/]],nice:[[/chipotle/],[/corn/],[/green chile/],[/chili|cumin/]],grab:'cheese, onion',s:['Simmer beans + tomatoes + chipotle + corn into a thick chili.','Spread corn-muffin batter on top; bake until golden.']},
+ {m:['dinner'],t:'Coconut–Ginger Chickpea Curry',need:[[/coconut milk|leite de coco/],[/chickpea|garbanzo|lentil|bean/]],nice:[[/ginger/],[/diced tomato/],[/carrot/],[/sriracha|chipotle/],[/chicken|tuna/],[/rice/]],grab:'onion, cilantro',s:['Bloom ginger in oil; add chickpeas, tomato, coconut milk.','Simmer 15 min, season; serve over rice.']},
+ {m:['dinner'],t:'Tuna Puttanesca',need:[[/spaghetti|pasta|penne|reggano/],[/tomato sauce|diced tomato|pasta sauce|classico/],[/olive/]],nice:[[/tuna/],[/artichoke/],[/arbol|chili|jalape/]],grab:'parsley, garlic',s:['Simmer tomato sauce with chopped olives + chili flakes.','Flake in tuna; toss with cooked pasta.']},
+ {m:['dinner'],t:'Korean SPAM Fried Rice',need:[[/rice/],[/soy|aminos/]],nice:[[/spam/],[/corn/],[/sesame/],[/sriracha/],[/carrot/]],grab:'egg, scallion',s:['Crisp diced SPAM; add cold rice + corn and fry hard.','Splash soy + sesame; finish with sriracha (and grab a fried egg).']},
+ {m:['dinner'],t:'Almond-Butter Pad Thai',need:[[/pad thai|rice noodle|reisnudeln|ramen/],[/almond butter|peanut/],[/soy|aminos/]],nice:[[/rice vinegar/],[/sriracha/],[/ginger/],[/chicken|tuna/],[/honey|agave/]],grab:'lime, egg',s:['Whisk almond butter + soy + vinegar + a little honey + water.','Toss with noodles + protein; finish with sriracha and (grab) lime.']},
+ {m:['dinner'],t:'Pasta e Fagioli',need:[[/pasta|acini|orzo|penne|ditalini|spaghetti/],[/cannellini|white bean|bean/],[/tomato|diced tomato|tomato sauce/]],nice:[[/broth/],[/olive oil/]],grab:'onion, parmesan',s:['Simmer beans + tomato + broth; add small pasta and cook in.','Loosen with broth; finish with olive oil.']},
+ {m:['dinner'],t:'Loaded Black-Bean Tacos',need:[[/taco|tortilla|shell/],[/bean/]],nice:[[/salsa/],[/corn/],[/chipotle/],[/jalape/],[/chicken/]],grab:'avocado, cilantro',s:['Warm seasoned beans (+ chicken if you have it).','Fill shells; top with salsa, corn, jalapeños.']},
+ {m:['dinner'],t:'Chicken & Rice Skillet',need:[[/chicken/],[/rice/]],nice:[[/cream of chicken/],[/broth/],[/corn/],[/green bean/]],grab:'onion',s:['Toast rice; add chicken + broth (and cream-of-chicken for comfort).','Cover and simmer until rice is tender; stir in corn/green beans.']},
+ {m:['dinner'],t:'Sesame Noodles',need:[[/ramen|noodle|spaghetti|pad thai|reisnudeln/],[/sesame/],[/soy|aminos/]],nice:[[/almond butter|peanut/],[/sriracha/],[/rice vinegar/],[/ginger/]],grab:'scallion, cucumber',s:['Whisk sesame oil + soy + vinegar (+ almond butter to make it creamy).','Toss with cooked noodles; top with sriracha.']},
+ {m:['dinner'],t:'Manicotti / Lasagna Bake',need:[[/manicotti|lasagna/],[/tomato sauce|pasta sauce|classico|diced tomato/]],nice:[[/olive/]],grab:'ricotta, mozzarella',s:['Layer/stuff with ricotta (grab) and sauce.','Bake covered ~30 min until bubbly.']},
+ {m:['dinner'],t:'Buldak Ramen, Upgraded',need:[[/buldak|spicy ramen|samyang/]],nice:[[/spam/],[/corn/],[/sesame/],[/cheese/]],grab:'egg, scallion',s:['Cook buldak per pack but reserve a little starchy water.','Fold in SPAM/corn; melt a slice of cheese and add a soft egg.']},
+ {m:['dinner','lunch'],t:'Quinoa Burrito Bowl',need:[[/quinoa|rice/],[/bean/]],nice:[[/corn/],[/salsa/],[/chipotle/],[/green chile/],[/chicken/]],grab:'avocado, lime',s:['Build a bowl of grain + warmed beans + corn.','Top with salsa, chipotle, and (grab) avocado + lime.']},
+
+ // ---- Treat / dessert ----
+ {m:['treat'],t:'Brigadeiro (2-ingredient fudge)',need:[[/condensed milk/],[/cacao|cocoa|chocolate/]],nice:[[/vanilla/]],grab:'butter',s:['Cook condensed milk + cacao + a knob of butter, stirring, until thick.','Cool, roll into balls (sprinkles optional).']},
+ {m:['treat'],t:'Coconut Rice Pudding',need:[[/rice/],[/coconut milk|condensed milk|leite de coco|cream/]],nice:[[/vanilla/],[/peach|pineapple|mandarin/],[/honey/]],grab:'cinnamon',s:['Simmer cooked rice with coconut/condensed milk until creamy.','Sweeten; serve warm with fruit.']},
+ {m:['treat'],t:'Pudding Parfait',need:[[/pudding|gelatin/]],nice:[[/peach|mandarin|pineapple/],[/granola/],[/hemp|chia/]],grab:'whipped cream',s:['Set the pudding/gelatin per box.','Layer with canned fruit and granola.']}
+];
+
+function autoMeal(){ var h=new Date().getHours(); if(h<11) return 'breakfast'; if(h<16) return 'lunch'; return 'dinner'; }
+function mealLabel(m){ return {breakfast:'🌅 Breakfast',lunch:'🥪 Lunch',dinner:'🍽️ Dinner',treat:'🍮 Treat'}[m]||m; }
+function pantryItemsLive(){ return state.items.filter(function(it){ return it.qty>0; }); }
+function matchSlot(slot, items){
+  for(var i=0;i<items.length;i++){ var nm=items[i].name.toLowerCase();
+    for(var j=0;j<slot.length;j++){ if(slot[j].test(nm)) return items[i].name; } }
+  return null;
+}
+function heroNameSet(items){
+  var set={};
+  items.forEach(function(it){ if(isStale(it)) set[it.name.toLowerCase()]=1; });
+  // also treat the oldest dozen as "use me first"
+  var byAge=items.slice().sort(function(a,b){ return ageDays(b)-ageDays(a); });
+  byAge.slice(0,12).forEach(function(it){ if(ageDays(it)>0) set[it.name.toLowerCase()]=1; });
+  return set;
+}
+function matchRecipe(rec, items){
+  var used=[];
+  for(var i=0;i<rec.need.length;i++){ var m=matchSlot(rec.need[i],items); if(!m) return null; if(used.indexOf(m)<0)used.push(m); }
+  (rec.nice||[]).forEach(function(slot){ var m=matchSlot(slot,items); if(m && used.indexOf(m)<0) used.push(m); });
+  return {rec:rec, used:used};
+}
+function renderMenu(){
+  var el=document.getElementById('list');
+  var items=pantryItemsLive();
+  var meal=menuMeal||autoMeal();
+  var hero=heroNameSet(items);
+  // qualifying recipes for this meal, scored by how many aging/perishable items they use
+  var matches=[];
+  RECIPES.forEach(function(rec){ if(rec.m.indexOf(meal)<0) return;
+    var mm=matchRecipe(rec,items); if(!mm) return;
+    mm.score=mm.used.reduce(function(a,n){ return a+(hero[n.toLowerCase()]?1:0); },0);
+    matches.push(mm);
+  });
+  matches.sort(function(a,b){ if(b.score!==a.score) return b.score-a.score; return a.rec.t.localeCompare(b.rec.t); });
+
+  // meal toggle + refresh header
+  var meals=['breakfast','lunch','dinner','treat'];
+  var head='<div class="loc-filter" style="margin-bottom:4px">';
+  meals.forEach(function(mz){ head+='<div class="chip'+(mz===meal?' on':'')+'" onclick="pickMeal(\''+mz+'\')">'+mealLabel(mz)+'</div>'; });
+  head+='</div>';
+
+  if(!matches.length){
+    el.innerHTML=head+'<div class="empty"><div class="big">🍽️</div><div>No '+meal+' ideas match your pantry yet.<br>Scan or add a few more staples and check back.</div></div>';
+    return;
+  }
+  // show 2 ideas per "menu", cycle with refresh
+  var perPage=Math.min(2,matches.length);
+  var start=((menuOffset%matches.length)+matches.length)%matches.length;
+  var page=[]; for(var k=0;k<perPage;k++){ page.push(matches[(start+k)%matches.length]); }
+
+  var html=head;
+  html+='<div class="menu-bar"><div class="menu-title">'+mealLabel(meal)+' &middot; using what you have</div>'+
+        '<button class="refresh-btn" onclick="refreshMenu()">🔄 New ideas</button></div>';
+  page.forEach(function(mm){ html+=recipeCard(mm,hero); });
+  html+='<div class="scanhint" style="margin-top:6px">Idea '+(start+1)+'–'+(((start+perPage-1)%matches.length)+1)+' of '+matches.length+' for '+meal+' · tap 🔄 to cycle</div>';
+  el.innerHTML=html;
+}
+function recipeCard(mm,hero){
+  var rec=mm.rec;
+  var heroUsed=mm.used.filter(function(n){ return hero[n.toLowerCase()]; });
+  var haveLine=mm.used.map(function(n){ return esc(n); }).join(' · ');
+  var h='<div class="recipe">';
+  h+='<div class="recipe-h">'+esc(rec.t)+'</div>';
+  if(heroUsed.length) h+='<div class="recipe-uses">♻️ uses up: '+heroUsed.map(esc).join(', ')+'</div>';
+  h+='<div class="recipe-have"><b>From your pantry:</b> '+haveLine+'</div>';
+  if(rec.grab) h+='<div class="recipe-grab">🛒 grab: '+esc(rec.grab)+'</div>';
+  h+='<ol class="recipe-steps">'+rec.s.map(function(s){return '<li>'+esc(s)+'</li>';}).join('')+'</ol>';
+  h+='</div>';
+  return h;
+}
+function pickMeal(m){ menuMeal=m; menuOffset=0; render(); }
+function refreshMenu(){ menuOffset+=2; render(); }
 
 /* ---------- inventory actions ---------- */
 function bump(id,d){
