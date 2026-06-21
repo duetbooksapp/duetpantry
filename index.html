@@ -81,6 +81,21 @@
   .recipe-grab{font-size:13px;color:var(--teal);margin-bottom:8px;font-weight:600}
   .recipe-steps{margin:6px 0 0;padding-left:20px;color:var(--mut);font-size:13px;line-height:1.6}
   .recipe-steps li{margin-bottom:3px}
+  .recipe-act{display:flex;gap:8px;margin-top:12px}
+  .recipe-link{flex:0 0 auto;display:flex;align-items:center;justify-content:center;padding:10px 13px;border-radius:11px;
+    background:var(--panel2);border:1px solid var(--line);color:var(--txt);font-size:13px;font-weight:600;text-decoration:none}
+  .recipe-made{flex:1;padding:10px;border:none;border-radius:11px;background:var(--green);color:#04220f;font-size:14px;font-weight:700;cursor:pointer}
+  .recipe-made:active{opacity:.85}
+  .webcard{display:flex;align-items:center;gap:11px;background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:9px;margin-bottom:9px;text-decoration:none;color:var(--txt)}
+  .webcard img{width:52px;height:52px;border-radius:10px;object-fit:cover;flex-shrink:0;background:var(--panel2)}
+  .webcard-nm{flex:1;font-size:14px;font-weight:600;line-height:1.35}
+  .webcard-go{color:var(--teal);font-size:18px;flex-shrink:0;padding-right:4px}
+  .comp-row{display:flex;align-items:center;gap:11px;padding:11px;border:1px solid var(--line);border-radius:12px;margin-bottom:8px;cursor:pointer}
+  .comp-row input{width:22px;height:22px;accent-color:var(--teal);flex-shrink:0}
+  .comp-emoji{font-size:20px}
+  .comp-nm{flex:1;font-size:14px;font-weight:600;line-height:1.3}
+  .comp-have{font-size:12px;color:var(--mut);flex-shrink:0}
   .empty{text-align:center;padding:60px 20px;color:var(--mut)}
   .empty .big{font-size:54px;margin-bottom:12px;opacity:.6}
   .fab{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);
@@ -250,6 +265,18 @@ Rice"></textarea>
   </div>
 </div>
 
+<!-- "Made this" → deduct ingredients sheet -->
+<div class="scrim" id="completeScrim">
+  <div class="sheet">
+    <div class="grip"></div>
+    <h2 id="completeTitle">Made it!</h2>
+    <div class="scanhint" style="margin-bottom:10px">Check what you actually used up. Splashes of oil, spices &amp; sauces are left unchecked — toggle anything you like.</div>
+    <div id="completeList"></div>
+    <button class="btn pri" onclick="confirmComplete()">Use up checked items</button>
+    <button class="btn gho" onclick="closeSheet('completeScrim')">Cancel</button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
@@ -275,6 +302,8 @@ var tab = 'have';
 var locFilter = 'All';
 var menuMeal = null;   // null = auto by time of day; else 'breakfast'|'lunch'|'dinner'|'treat'
 var menuOffset = 0;    // refresh cycles through matching recipes
+var menuPage = [];     // recipes currently shown (for the "Made this" button)
+var webCache = null;   // {term, html} cache for live web recipes
 var editingId = null;
 var codeReader = null;
 var scanTrack = null, torchOn = false;
@@ -545,14 +574,19 @@ function renderMenu(){
   var start=((menuOffset%matches.length)+matches.length)%matches.length;
   var page=[]; for(var k=0;k<perPage;k++){ page.push(matches[(start+k)%matches.length]); }
 
+  menuPage=page;
+  var term=webTerm(items);
   var html=head;
   html+='<div class="menu-bar"><div class="menu-title">'+mealLabel(meal)+' &middot; using what you have</div>'+
         '<button class="refresh-btn" onclick="refreshMenu()">🔄 New ideas</button></div>';
-  page.forEach(function(mm){ html+=recipeCard(mm,hero); });
-  html+='<div class="scanhint" style="margin-top:6px">Idea '+(start+1)+'–'+(((start+perPage-1)%matches.length)+1)+' of '+matches.length+' for '+meal+' · tap 🔄 to cycle</div>';
+  page.forEach(function(mm,i){ html+=recipeCard(mm,hero,i); });
+  html+='<div class="scanhint" style="margin:4px 0 2px">Idea '+(start+1)+'–'+(((start+perPage-1)%matches.length)+1)+' of '+matches.length+' for '+meal+' · tap 🔄 to cycle</div>';
+  html+='<div class="group-h" style="margin-top:16px">🔎 Real recipes online · close to your '+esc(term)+'</div>';
+  html+='<div id="webRecipes"><div class="scanhint">Looking online…</div></div>';
   el.innerHTML=html;
+  loadWebRecipes(term);   // async — fills #webRecipes with live links
 }
-function recipeCard(mm,hero){
+function recipeCard(mm,hero,idx){
   var rec=mm.rec;
   var heroUsed=mm.used.filter(function(n){ return hero[n.toLowerCase()]; });
   var haveLine=mm.used.map(function(n){ return esc(n); }).join(' · ');
@@ -562,11 +596,83 @@ function recipeCard(mm,hero){
   h+='<div class="recipe-have"><b>From your pantry:</b> '+haveLine+'</div>';
   if(rec.grab) h+='<div class="recipe-grab">🛒 grab: '+esc(rec.grab)+'</div>';
   h+='<ol class="recipe-steps">'+rec.s.map(function(s){return '<li>'+esc(s)+'</li>';}).join('')+'</ol>';
+  h+='<div class="recipe-act">'+
+       '<a class="recipe-link" href="'+recipeWebUrl(rec)+'" target="_blank" rel="noopener">🔎 Full recipe</a>'+
+       '<button class="recipe-made" onclick="completeRecipe('+idx+')">✅ Made this</button>'+
+     '</div>';
   h+='</div>';
   return h;
 }
 function pickMeal(m){ menuMeal=m; menuOffset=0; render(); }
 function refreshMenu(){ menuOffset+=2; render(); }
+function recipeWebUrl(rec){ return 'https://www.google.com/search?q='+encodeURIComponent(rec.t+' recipe'); }
+
+// ---- live web recipes (TheMealDB, free + CORS-open) keyed to an aging pantry item ----
+var MEALDB_MAP=[[/chicken/,'chicken breast'],[/turkey/,'turkey'],[/beef|steak/,'beef'],
+  [/pork|spam|bacon|\bham\b|sausage/,'pork'],[/tuna/,'tuna'],[/salmon/,'salmon'],[/shrimp|prawn/,'prawns'],
+  [/lentil/,'lentils'],[/chickpea|garbanzo/,'chickpeas'],[/kidney|pinto|cannellini|black bean|\bbean/,'beans'],
+  [/quinoa/,'quinoa'],[/rice/,'rice'],[/pasta|spaghetti|penne|macaroni|orzo|noodle/,'pasta'],
+  [/coconut milk|leite de coco/,'coconut milk'],[/potato/,'potatoes'],[/egg/,'eggs']];
+function webTerm(items){
+  var hero=heroNameSet(items);
+  var ordered=items.slice().sort(function(a,b){ var ha=hero[a.name.toLowerCase()]?0:1, hb=hero[b.name.toLowerCase()]?0:1;
+    if(ha!==hb)return ha-hb; return ageDays(b)-ageDays(a); });
+  for(var i=0;i<ordered.length;i++){ var nm=ordered[i].name.toLowerCase();
+    for(var j=0;j<MEALDB_MAP.length;j++){ if(MEALDB_MAP[j][0].test(nm)) return MEALDB_MAP[j][1]; } }
+  return 'beans';
+}
+function webSearchLink(term){ return 'https://www.google.com/search?q='+encodeURIComponent(term+' recipe'); }
+function loadWebRecipes(term){
+  if(webCache && webCache.term===term){ var b=document.getElementById('webRecipes'); if(b)b.innerHTML=webCache.html; return; }
+  fetch('https://www.themealdb.com/api/json/v1/1/filter.php?i='+encodeURIComponent(term))
+    .then(function(r){return r.json()}).then(function(d){
+      var meals=(d&&d.meals)||[]; if(!meals.length) throw 0;
+      var html=meals.slice(0,4).map(function(m){
+        return '<a class="webcard" href="https://www.themealdb.com/meal/'+m.idMeal+'" target="_blank" rel="noopener">'+
+          '<img src="'+m.strMealThumb+'/preview" alt="" loading="lazy">'+
+          '<span class="webcard-nm">'+esc(m.strMeal)+'</span><span class="webcard-go">↗</span></a>';
+      }).join('');
+      webCache={term:term, html:html};
+      var box=document.getElementById('webRecipes'); if(box) box.innerHTML=html;
+    }).catch(function(){
+      var box=document.getElementById('webRecipes'); if(box)
+        box.innerHTML='<a class="webcard" href="'+webSearchLink(term)+'" target="_blank" rel="noopener">'+
+          '<span class="webcard-nm">🔎 Search the web for '+esc(term)+' recipes</span><span class="webcard-go">↗</span></a>';
+    });
+}
+
+// ---- "Made this" → use up the ingredients (with a checklist so splashes aren't zeroed) ----
+// Default OFF (a splash/pinch you won't run out of): oils, vinegars, spices, sauces, sweeteners, flour.
+var STAPLE=/oil|vinegar|\bsalt\b|season|spice|cumin|cinnamon|paprika|oregano|basil|thyme|cayenne|chili pepper|arbol|guajillo|\bsoy\b|aminos|sesame|sriracha|cholula|hot sauce|buffalo|mustard|ketchup|\bmayo\b|dressing|honey|agave|syrup|\bsugar\b|extract|vanilla|baking|\bflour\b|almond butter|peanut butter|\bjam\b/i;
+function completeRecipe(idx){
+  var mm=menuPage[idx]; if(!mm) return;
+  document.getElementById('completeTitle').textContent='Made '+mm.rec.t+'!';
+  var rows=mm.used.map(function(n){
+    var it=state.items.filter(function(x){return x.name===n;})[0]; if(!it) return '';
+    var staple=STAPLE.test(n.toLowerCase());
+    return '<label class="comp-row"><input type="checkbox" '+(staple?'':'checked')+' data-name="'+esc(n)+'">'+
+      '<span class="comp-emoji">'+emojiFor(n)+'</span>'+
+      '<span class="comp-nm">'+esc(n)+'</span>'+
+      '<span class="comp-have">have '+fmt(it.qty)+'</span></label>';
+  }).join('');
+  document.getElementById('completeList').innerHTML=rows||'<div class="scanhint">These ingredients aren’t in your pantry anymore.</div>';
+  openSheet('completeScrim');
+}
+function confirmComplete(){
+  var boxes=document.querySelectorAll('#completeList input[type=checkbox]'); var used=[];
+  for(var i=0;i<boxes.length;i++){ if(boxes[i].checked){ var n=boxes[i].getAttribute('data-name'); consumeByName(n); used.push(n); } }
+  closeSheet('completeScrim'); persist(); render();
+  toast(used.length? '✓ Used up '+used.length+' ingredient'+(used.length>1?'s':'') : 'Nothing deducted');
+}
+function consumeByName(name){
+  var it=state.items.filter(function(x){return x.name===name;})[0]; if(!it) return;
+  it.qty=Math.round((it.qty-1)*100)/100;
+  if(it.qty<=0){
+    if(!state.shopping.some(function(s){return s.name.toLowerCase()===it.name.toLowerCase();}))
+      state.shopping.push({id:uid(),name:it.name,location:it.location,barcode:it.barcode||'',auto:true});
+    state.items=state.items.filter(function(x){return x.id!==it.id;});
+  } else { maybeAutoShop(it); }
+}
 
 /* ---------- inventory actions ---------- */
 function bump(id,d){
