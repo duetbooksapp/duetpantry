@@ -304,6 +304,8 @@ var menuMeal = null;   // null = auto by time of day; else 'breakfast'|'lunch'|'
 var menuOffset = 0;    // refresh cycles through matching recipes
 var menuPage = [];     // recipes currently shown (for the "Made this" button)
 var webCache = null;   // {term, html} cache for live web recipes
+var menuSource = 'pantry';  // 'pantry' = built-in recipes | 'web' = internet recipes
+var webIngOffset = 0;  // which pantry ingredient the web menu is searching
 var editingId = null;
 var codeReader = null;
 var scanTrack = null, torchOn = false;
@@ -548,9 +550,16 @@ function matchRecipe(rec, items){
 function renderMenu(){
   var el=document.getElementById('list');
   var items=pantryItemsLive();
+  var srcBar='<div class="seg" style="margin-bottom:12px">'+
+    '<div class="o'+(menuSource==='pantry'?' on':'')+'" onclick="pickSource(\'pantry\')">🍳 My pantry</div>'+
+    '<div class="o'+(menuSource==='web'?' on':'')+'" onclick="pickSource(\'web\')">🌐 Internet</div>'+
+    '</div>';
+  if(menuSource==='web') renderWebMenu(el, srcBar, items);
+  else renderPantryMenu(el, srcBar, items);
+}
+function renderPantryMenu(el, srcBar, items){
   var meal=menuMeal||autoMeal();
   var hero=heroNameSet(items);
-  // qualifying recipes for this meal, scored by how many aging/perishable items they use
   var matches=[];
   RECIPES.forEach(function(rec){ if(rec.m.indexOf(meal)<0) return;
     var mm=matchRecipe(rec,items); if(!mm) return;
@@ -559,32 +568,49 @@ function renderMenu(){
   });
   matches.sort(function(a,b){ if(b.score!==a.score) return b.score-a.score; return a.rec.t.localeCompare(b.rec.t); });
 
-  // meal toggle + refresh header
   var meals=['breakfast','lunch','dinner','treat'];
   var head='<div class="loc-filter" style="margin-bottom:4px">';
   meals.forEach(function(mz){ head+='<div class="chip'+(mz===meal?' on':'')+'" onclick="pickMeal(\''+mz+'\')">'+mealLabel(mz)+'</div>'; });
   head+='</div>';
 
   if(!matches.length){
-    el.innerHTML=head+'<div class="empty"><div class="big">🍽️</div><div>No '+meal+' ideas match your pantry yet.<br>Scan or add a few more staples and check back.</div></div>';
+    el.innerHTML=srcBar+head+'<div class="empty"><div class="big">🍽️</div><div>No '+meal+' ideas match your pantry yet.<br>Try the 🌐 Internet tab, or add a few more staples.</div></div>';
     return;
   }
-  // show 2 ideas per "menu", cycle with refresh
   var perPage=Math.min(2,matches.length);
   var start=((menuOffset%matches.length)+matches.length)%matches.length;
   var page=[]; for(var k=0;k<perPage;k++){ page.push(matches[(start+k)%matches.length]); }
-
   menuPage=page;
-  var term=webTerm(items);
-  var html=head;
+
+  var html=srcBar+head;
   html+='<div class="menu-bar"><div class="menu-title">'+mealLabel(meal)+' &middot; using what you have</div>'+
         '<button class="refresh-btn" onclick="refreshMenu()">🔄 New ideas</button></div>';
   page.forEach(function(mm,i){ html+=recipeCard(mm,hero,i); });
   html+='<div class="scanhint" style="margin:4px 0 2px">Idea '+(start+1)+'–'+(((start+perPage-1)%matches.length)+1)+' of '+matches.length+' for '+meal+' · tap 🔄 to cycle</div>';
-  html+='<div class="group-h" style="margin-top:16px">🔎 Real recipes online · close to your '+esc(term)+'</div>';
+  el.innerHTML=html;
+}
+function renderWebMenu(el, srcBar, items){
+  var terms=availableTerms(items); if(!terms.length) terms=['beans'];
+  var term=terms[((webIngOffset%terms.length)+terms.length)%terms.length];
+  var chips='<div class="loc-filter" style="margin-bottom:4px">';
+  terms.forEach(function(t,i){ chips+='<div class="chip'+(t===term?' on':'')+'" onclick="pickWebIng('+i+')">'+esc(t)+'</div>'; });
+  chips+='</div>';
+  var html=srcBar+chips;
+  html+='<div class="menu-bar"><div class="menu-title">🌐 Real recipes using your '+esc(term)+'</div>'+
+        '<button class="refresh-btn" onclick="refreshWeb()">🔄 Next ingredient</button></div>';
   html+='<div id="webRecipes"><div class="scanhint">Looking online…</div></div>';
   el.innerHTML=html;
-  loadWebRecipes(term);   // async — fills #webRecipes with live links
+  loadWebRecipes(term);
+}
+function availableTerms(items){
+  var hero=heroNameSet(items);
+  var ordered=items.slice().sort(function(a,b){ var ha=hero[a.name.toLowerCase()]?0:1,hb=hero[b.name.toLowerCase()]?0:1;
+    if(ha!==hb)return ha-hb; return ageDays(b)-ageDays(a); });
+  var seen={}, terms=[];
+  ordered.forEach(function(it){ var nm=it.name.toLowerCase();
+    for(var j=0;j<MEALDB_MAP.length;j++){ if(MEALDB_MAP[j][0].test(nm)){ var t=MEALDB_MAP[j][1]; if(!seen[t]){seen[t]=1;terms.push(t);} break; } }
+  });
+  return terms;
 }
 function recipeCard(mm,hero,idx){
   var rec=mm.rec;
@@ -605,6 +631,9 @@ function recipeCard(mm,hero,idx){
 }
 function pickMeal(m){ menuMeal=m; menuOffset=0; render(); }
 function refreshMenu(){ menuOffset+=2; render(); }
+function pickSource(s){ menuSource=s; render(); }
+function pickWebIng(i){ webIngOffset=i; render(); }
+function refreshWeb(){ webIngOffset+=1; render(); }
 function recipeWebUrl(rec){ return 'https://www.google.com/search?q='+encodeURIComponent(rec.t+' recipe'); }
 
 // ---- live web recipes (TheMealDB, free + CORS-open) keyed to an aging pantry item ----
@@ -627,7 +656,7 @@ function loadWebRecipes(term){
   fetch('https://www.themealdb.com/api/json/v1/1/filter.php?i='+encodeURIComponent(term))
     .then(function(r){return r.json()}).then(function(d){
       var meals=(d&&d.meals)||[]; if(!meals.length) throw 0;
-      var html=meals.slice(0,4).map(function(m){
+      var html=meals.slice(0,8).map(function(m){
         return '<a class="webcard" href="https://www.themealdb.com/meal/'+m.idMeal+'" target="_blank" rel="noopener">'+
           '<img src="'+m.strMealThumb+'/preview" alt="" loading="lazy">'+
           '<span class="webcard-nm">'+esc(m.strMeal)+'</span><span class="webcard-go">↗</span></a>';
