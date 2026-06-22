@@ -260,7 +260,7 @@
     <input class="f" id="f_exp" type="date">
     <label class="fld">📝 Note / comment (optional)</label>
     <textarea class="f" id="f_note" style="min-height:62px" placeholder="e.g. Costco only · for Thanksgiving · big carton"></textarea>
-    <input type="hidden" id="f_id"><input type="hidden" id="f_barcode">
+    <input type="hidden" id="f_id"><input type="hidden" id="f_barcode"><input type="hidden" id="f_size">
     <button class="btn pri" onclick="saveItem()">Save</button>
     <button class="btn danger" id="delBtn" style="display:none" onclick="deleteItem()">Delete item</button>
     <button class="btn gho" onclick="closeSheet('addScrim')">Cancel</button>
@@ -555,6 +555,7 @@ function itemCard(it){
   if(low) subs.push('<span class="tagy">Running low</span>');
   if(stale) subs.push('<span class="tagstale">🕒 '+ageDays(it)+'d — been a while</span>');
   if(du!==null){ if(du<0) subs.push('<span class="tagr">Expired</span>'); else if(du<=3) subs.push('<span class="tagr">'+du+'d left</span>'); else subs.push('<span style="opacity:.8">exp '+(du)+'d</span>'); }
+  if(it.size) subs.push('<span style="opacity:.7">📦 '+esc(it.size)+'</span>');
   subs.push('<span style="opacity:.7">📅 '+fmtAdded(it.addedAt)+'</span>');
   return '<div class="card'+(low?' low':'')+(stale&&!low?' stale':'')+(expSoon?' exp':'')+'">'+
     '<div class="ic-emoji">'+emojiFor(it.name)+'</div>'+
@@ -876,6 +877,7 @@ function openAdd(prefill){
   document.getElementById('f_exp').value='';
   document.getElementById('f_id').value='';
   document.getElementById('f_barcode').value=(prefill&&prefill.barcode)||'';
+  document.getElementById('f_size').value='';
   document.getElementById('f_note').value='';
   document.getElementById('lookupMsg').innerHTML='';
   document.getElementById('dupHint').innerHTML='';
@@ -895,6 +897,7 @@ function openEdit(id){
   document.getElementById('f_exp').value=it.expiry||'';
   document.getElementById('f_id').value=it.id;
   document.getElementById('f_barcode').value=it.barcode||'';
+  document.getElementById('f_size').value=it.size||'';
   document.getElementById('f_note').value=it.notes||'';
   document.getElementById('lookupMsg').innerHTML='';
   document.getElementById('dupHint').innerHTML='';
@@ -931,13 +934,14 @@ function saveItem(){
   var loc=selectedLoc(); var exp=document.getElementById('f_exp').value||'';
   var bc=document.getElementById('f_barcode').value||'';
   var note=(document.getElementById('f_note').value||'').trim();
+  var size=(document.getElementById('f_size').value||'').trim();
   if(editingId){
-    var it=find(editingId); if(it){ it.name=name;it.qty=qty;it.low=low;it.location=loc;it.expiry=exp;it.barcode=bc;it.notes=note; }
+    var it=find(editingId); if(it){ it.name=name;it.qty=qty;it.low=low;it.location=loc;it.expiry=exp;it.barcode=bc;it.notes=note;it.size=size; }
   } else {
     // merge if same name already exists
     var ex=state.items.filter(function(x){return x.name.toLowerCase()===name.toLowerCase();})[0];
-    if(ex){ ex.qty=Math.round((ex.qty+qty)*100)/100; ex.location=loc; if(note) ex.notes=note; }
-    else state.items.push({id:uid(),name:name,qty:qty,low:low,location:loc,barcode:bc,expiry:exp,notes:note,addedAt:Date.now()});
+    if(ex){ ex.qty=Math.round((ex.qty+qty)*100)/100; ex.location=loc; if(note) ex.notes=note; if(size) ex.size=size; }
+    else state.items.push({id:uid(),name:name,qty:qty,low:low,location:loc,barcode:bc,expiry:exp,notes:note,size:size,addedAt:Date.now()});
     // remove from shopping list if it was there
     state.shopping=state.shopping.filter(function(s){return s.name.toLowerCase()!==name.toLowerCase();});
   }
@@ -1071,7 +1075,7 @@ function onBarcode(code){
   lookupProduct(code);
 }
 function lookupProduct(code){
-  fetch('https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(code)+'.json?fields=product_name,brands,generic_name')
+  fetch('https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(code)+'.json?fields=product_name,brands,generic_name,quantity')
     .then(function(r){return r.json()})
     .then(function(d){
       var lm=document.getElementById('lookupMsg');
@@ -1079,7 +1083,9 @@ function lookupProduct(code){
         var nm=d.product.product_name||d.product.generic_name||'';
         var br=d.product.brands?(d.product.brands.split(',')[0]):'';
         var full=(nm||'').trim(); if(br && full && full.toLowerCase().indexOf(br.toLowerCase())<0) full=br+' '+full;
-        if(full){ document.getElementById('f_name').value=full; lm.innerHTML='<div class="lookup">✓ Found: '+esc(full)+'</div>'; refreshDupHint(); }
+        var size=(d.product.quantity||'').trim();
+        if(size) document.getElementById('f_size').value=size;
+        if(full){ document.getElementById('f_name').value=full; lm.innerHTML='<div class="lookup">✓ Found: '+esc(full)+(size?' · 📦 '+esc(size):'')+'</div>'; refreshDupHint(); }
         else lm.innerHTML='<div class="lookup">Found product but no name — type it.</div>';
       } else {
         lm.innerHTML='<div class="lookup">Not in database (barcode '+esc(code)+') — type the name.</div>';
@@ -1116,7 +1122,7 @@ function openOnFile(it){
   if(du!==null) extra=(du<0?' · ⚠️ expired':' · exp in '+du+'d');
   var h='<div class="onfile-item">'+
     '<div class="recipe-h">'+emojiFor(it.name)+' '+esc(it.name)+'</div>'+
-    '<div class="onfile-have">You have <b>'+fmt(it.qty)+'</b> · '+esc(it.location)+' · '+fmtAdded(it.addedAt)+extra+'</div>'+
+    '<div class="onfile-have">You have <b>'+fmt(it.qty)+'</b> · '+esc(it.location)+(it.size?' · 📦 '+esc(it.size):'')+' · '+fmtAdded(it.addedAt)+extra+'</div>'+
     (it.notes?'<div class="onfile-note">💬 '+esc(it.notes)+'</div>':'')+
     '</div>'+
     '<div class="scanhint" style="margin-top:8px">You already have this on file — decide if you still need to buy more.</div>';
