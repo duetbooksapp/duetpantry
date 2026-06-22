@@ -152,6 +152,13 @@
   .onfile-item{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:13px}
   .onfile-have{font-size:14px;color:var(--txt);margin-top:6px}
   .onfile-note{font-size:13px;color:var(--teal);margin-top:6px;font-weight:600}
+  .bar{display:flex;align-items:center;gap:8px;margin:6px 0;font-size:13px}
+  .bar-track{flex:1;height:14px;background:var(--panel2);border-radius:7px;overflow:hidden;min-width:40px}
+  .bar-fill{height:100%;border-radius:7px;min-width:2px}
+  .rep-row{display:flex;justify-content:space-between;gap:10px;padding:8px 2px;border-bottom:1px solid var(--line);font-size:14px;align-items:center}
+  .rep-row span:first-child{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rep-big{font-size:40px;font-weight:800;text-align:center;margin-top:6px}
+  .rep-sub{font-size:13px;color:var(--mut);text-align:center;margin-bottom:8px;line-height:1.5}
   .empty{text-align:center;padding:60px 20px;color:var(--mut)}
   .empty .big{font-size:54px;margin-bottom:12px;opacity:.6}
   .fab{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);
@@ -269,7 +276,7 @@
     <input class="f" id="f_exp" type="date">
     <label class="fld">📝 Note / comment (optional)</label>
     <textarea class="f" id="f_note" style="min-height:62px" placeholder="e.g. Costco only · for Thanksgiving · big carton"></textarea>
-    <input type="hidden" id="f_id"><input type="hidden" id="f_barcode"><input type="hidden" id="f_size">
+    <input type="hidden" id="f_id"><input type="hidden" id="f_barcode"><input type="hidden" id="f_size"><input type="hidden" id="f_nutri"><input type="hidden" id="f_nova">
     <button class="btn pri" onclick="saveItem()">Save</button>
     <button class="btn danger" id="delBtn" style="display:none" onclick="deleteItem()">Delete item</button>
     <button class="btn gho" onclick="closeSheet('addScrim')">Cancel</button>
@@ -318,6 +325,9 @@
       </div>
     </div>
     <div class="menu-row">
+      <div class="mb" onclick="openReports()">📊 Reports &amp; insights</div>
+    </div>
+    <div class="menu-row">
       <div class="mb" onclick="manualSync()">☁️ Back up now</div>
       <div class="mb" onclick="restoreCloud()">⬇️ Restore from cloud</div>
     </div>
@@ -364,6 +374,17 @@ Rice"></textarea>
     <div id="completeList"></div>
     <button class="btn pri" onclick="confirmComplete()">Use up checked items</button>
     <button class="btn gho" onclick="closeSheet('completeScrim')">Cancel</button>
+  </div>
+</div>
+
+<!-- Reports & insights sheet -->
+<div class="scrim" id="reportScrim">
+  <div class="sheet">
+    <div class="grip"></div>
+    <h2>📊 Reports &amp; insights</h2>
+    <div class="loc-filter" id="reportSel" style="margin-bottom:12px"></div>
+    <div id="reportBody"></div>
+    <button class="btn gho" onclick="closeSheet('reportScrim')" style="margin-top:16px">Close</button>
   </div>
 </div>
 
@@ -424,7 +445,7 @@ var PERISHABLE = [/milk|cream|half.?and.?half/, /yog(h)?urt/, /cheese.*fresh|ric
   /berr|strawberr|raspberr|blueberr|blackberr/, /mushroom/, /avocado/, /banana/,
   /tomato/, /leftover/, /tofu/, /sprout/, /grape/];
 
-var APP_VERSION = '2026-06-21b';   // bump on every deploy; version.txt is kept in sync
+var APP_VERSION = '2026-06-21c';   // bump on every deploy; version.txt is kept in sync
 var state = { items:[], shopping:[], updatedAt:0 };
 var tab = 'have';
 var locFilter = 'All';
@@ -830,7 +851,7 @@ function confirmComplete(){
 function consumeByName(name){
   var it=state.items.filter(function(x){return x.name===name;})[0]; if(!it) return;
   it.qty=Math.round((it.qty-1)*100)/100;
-  if(it.qty<=0){ it.qty=0; it.level='out'; ensureOnShop(it); }   // keep item, mark Out
+  if(it.qty<=0){ it.qty=0; it.level='out'; ensureOnShop(it); logEvent('out',it); }   // keep item, mark Out
 }
 
 /* ---------- inventory actions ---------- */
@@ -860,23 +881,39 @@ function removeNameFromShop(name){
 }
 function setLevel(id,lvl){
   var it=find(id); if(!it)return;
+  var prev=levelOf(it);
   it.level=lvl;
-  if(lvl==='have'){ if(it.qty<=0) it.qty=1; removeNameFromShop(it.name); toast('🟢 '+it.name+' — have it'); }
+  if(lvl==='have'){ if(it.qty<=0) it.qty=1; removeNameFromShop(it.name); if(prev!=='have') logEvent('bought',it); toast('🟢 '+it.name+' — have it'); }
   else if(lvl==='low'){ ensureOnShop(it); toast('🟡 '+it.name+' — low, on the list'); }
-  else { it.qty=0; ensureOnShop(it); toast('🔴 '+it.name+' — out, on the list'); }
+  else { it.qty=0; ensureOnShop(it); if(prev!=='out') logEvent('out',it); toast('🔴 '+it.name+' — out, on the list'); }
   persist(); render();
 }
 // kept for the count path (recipes); marks Out instead of deleting
 function usedUp(id){ setLevel(id,'out'); }
 function find(id){ for(var i=0;i<state.items.length;i++) if(state.items[i].id===id) return state.items[i]; return null; }
 
+/* ---------- health scoring + event log (powers Reports) ---------- */
+function novaLabel(n){ return {1:'whole food',2:'culinary',3:'processed',4:'ultra-processed'}[n]||''; }
+function nutriColor(g){ return {a:'#16a34a',b:'#65a30d',c:'#eab308',d:'#f97316',e:'#ef4444'}[g]||'#7a869f'; }
+function healthBadge(nutri,nova){
+  var parts=[];
+  if(/^[a-e]$/.test(nutri)) parts.push('🩺 Nutri '+nutri.toUpperCase());
+  if(nova>=1&&nova<=4) parts.push('NOVA '+nova+(nova===4?' (ultra-processed)':''));
+  return parts.join(' · ');
+}
+function logEvent(type, it){
+  if(!state.log) state.log=[];
+  state.log.push({t:Date.now(), type:type, name:it.name, nova:it.nova||0, nutri:it.nutri||''});
+  if(state.log.length>3000) state.log=state.log.slice(-3000);   // cap
+}
+
 /* ---------- shopping actions ---------- */
 function boughtItem(id){
   var s=null; state.shopping=state.shopping.filter(function(x){ if(x.id===id){s=x;return false;} return true; });
   if(s){
     var ex=state.items.filter(function(it){return it.name.toLowerCase()===s.name.toLowerCase();})[0];
-    if(ex){ ex.level='have'; if(ex.qty<=0) ex.qty=1; }
-    else { state.items.push({id:uid(),name:s.name,qty:1,low:1,level:'have',location:s.location||'Pantry',barcode:s.barcode||'',expiry:'',addedAt:Date.now()}); }
+    if(ex){ ex.level='have'; if(ex.qty<=0) ex.qty=1; logEvent('bought',ex); }
+    else { var ni={id:uid(),name:s.name,qty:1,low:1,level:'have',location:s.location||'Pantry',barcode:s.barcode||'',expiry:'',addedAt:Date.now()}; state.items.push(ni); logEvent('bought',ni); }
     toast('✓ Bought — marked have');
   }
   persist(); render();
@@ -896,6 +933,7 @@ function openAdd(prefill){
   document.getElementById('f_id').value='';
   document.getElementById('f_barcode').value=(prefill&&prefill.barcode)||'';
   document.getElementById('f_size').value='';
+  document.getElementById('f_nutri').value=''; document.getElementById('f_nova').value='';
   document.getElementById('f_note').value='';
   document.getElementById('lookupMsg').innerHTML='';
   document.getElementById('dupHint').innerHTML='';
@@ -916,6 +954,7 @@ function openEdit(id){
   document.getElementById('f_id').value=it.id;
   document.getElementById('f_barcode').value=it.barcode||'';
   document.getElementById('f_size').value=it.size||'';
+  document.getElementById('f_nutri').value=it.nutri||''; document.getElementById('f_nova').value=it.nova||'';
   document.getElementById('f_note').value=it.notes||'';
   document.getElementById('lookupMsg').innerHTML='';
   document.getElementById('dupHint').innerHTML='';
@@ -953,13 +992,15 @@ function saveItem(){
   var bc=document.getElementById('f_barcode').value||'';
   var note=(document.getElementById('f_note').value||'').trim();
   var size=(document.getElementById('f_size').value||'').trim();
+  var nutri=(document.getElementById('f_nutri').value||'').trim();
+  var nova=parseInt(document.getElementById('f_nova').value,10)||0;
   if(editingId){
-    var it=find(editingId); if(it){ it.name=name;it.qty=qty;it.low=low;it.location=loc;it.expiry=exp;it.barcode=bc;it.notes=note;it.size=size; }
+    var it=find(editingId); if(it){ it.name=name;it.qty=qty;it.low=low;it.location=loc;it.expiry=exp;it.barcode=bc;it.notes=note;it.size=size; if(nutri)it.nutri=nutri; if(nova)it.nova=nova; }
   } else {
     // merge if same name already exists
     var ex=state.items.filter(function(x){return x.name.toLowerCase()===name.toLowerCase();})[0];
-    if(ex){ ex.qty=Math.round((ex.qty+qty)*100)/100; ex.location=loc; if(note) ex.notes=note; if(size) ex.size=size; }
-    else state.items.push({id:uid(),name:name,qty:qty,low:low,location:loc,barcode:bc,expiry:exp,notes:note,size:size,addedAt:Date.now()});
+    if(ex){ ex.qty=Math.round((ex.qty+qty)*100)/100; ex.location=loc; ex.level='have'; if(note) ex.notes=note; if(size) ex.size=size; if(nutri)ex.nutri=nutri; if(nova)ex.nova=nova; logEvent('bought',ex); }
+    else { var ni={id:uid(),name:name,qty:qty,low:low,level:'have',location:loc,barcode:bc,expiry:exp,notes:note,size:size,nutri:nutri,nova:nova,addedAt:Date.now()}; state.items.push(ni); logEvent('bought',ni); }
     // remove from shopping list if it was there
     state.shopping=state.shopping.filter(function(s){return s.name.toLowerCase()!==name.toLowerCase();});
   }
@@ -1093,7 +1134,7 @@ function onBarcode(code){
   lookupProduct(code);
 }
 function lookupProduct(code){
-  fetch('https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(code)+'.json?fields=product_name,brands,generic_name,quantity')
+  fetch('https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(code)+'.json?fields=product_name,brands,generic_name,quantity,nutriscore_grade,nova_group')
     .then(function(r){return r.json()})
     .then(function(d){
       var lm=document.getElementById('lookupMsg');
@@ -1103,7 +1144,12 @@ function lookupProduct(code){
         var full=(nm||'').trim(); if(br && full && full.toLowerCase().indexOf(br.toLowerCase())<0) full=br+' '+full;
         var size=(d.product.quantity||'').trim();
         if(size) document.getElementById('f_size').value=size;
-        if(full){ document.getElementById('f_name').value=full; lm.innerHTML='<div class="lookup">✓ Found: '+esc(full)+(size?' · 📦 '+esc(size):'')+'</div>'; refreshDupHint(); }
+        var nutri=(d.product.nutriscore_grade||'').trim().toLowerCase();
+        var nova=parseInt(d.product.nova_group,10)||0;
+        document.getElementById('f_nutri').value=(/^[a-e]$/.test(nutri)?nutri:'');
+        document.getElementById('f_nova').value=(nova>=1&&nova<=4?nova:'');
+        var hb=healthBadge(nutri,nova);
+        if(full){ document.getElementById('f_name').value=full; lm.innerHTML='<div class="lookup">✓ Found: '+esc(full)+(size?' · 📦 '+esc(size):'')+(hb?' · '+hb:'')+'</div>'; refreshDupHint(); }
         else lm.innerHTML='<div class="lookup">Found product but no name — type it.</div>';
       } else {
         lm.innerHTML='<div class="lookup">Not in database (barcode '+esc(code)+') — type the name.</div>';
@@ -1151,13 +1197,123 @@ function openOnFile(it){
 }
 function onfileAddOne(){
   var it=onfileId?find(onfileId):null;
-  if(it){ it.qty=Math.round((it.qty+1)*100)/100; it.level='have'; removeNameFromShop(it.name); persist(); render(); toast('🟢 '+it.name+' — have it ('+fmt(it.qty)+')'); }
+  if(it){ it.qty=Math.round((it.qty+1)*100)/100; it.level='have'; removeNameFromShop(it.name); logEvent('bought',it); persist(); render(); toast('🟢 '+it.name+' — have it ('+fmt(it.qty)+')'); }
   closeSheet('onfileScrim');
 }
 function onfileUsedLast(){
   var it=onfileId?find(onfileId):null;
-  if(it){ it.level='out'; it.qty=0; ensureOnShop(it); persist(); render(); toast('🔴 '+it.name+' — out, added to list'); }
+  if(it){ it.level='out'; it.qty=0; ensureOnShop(it); logEvent('out',it); persist(); render(); toast('🔴 '+it.name+' — out, added to list'); }
   closeSheet('onfileScrim');
+}
+
+/* ================= REPORTS & INSIGHTS ================= */
+var reportSel='health';
+function openReports(){ closeSheet('menuScrim'); buildReportSel(); renderReport(); openSheet('reportScrim'); }
+function buildReportSel(){
+  var tabs=[['health','🥗 Health'],['buys','🏆 Top buys'],['rate','⏱️ Rate'],['waste','🗑️ Waste']];
+  document.getElementById('reportSel').innerHTML=tabs.map(function(t){
+    return '<div class="chip'+(reportSel===t[0]?' on':'')+'" onclick="pickReport(\''+t[0]+'\')">'+t[1]+'</div>';
+  }).join('');
+}
+function pickReport(r){ reportSel=r; buildReportSel(); renderReport(); }
+function renderReport(){
+  var b=document.getElementById('reportBody'); if(!b) return;
+  b.innerHTML = reportSel==='health'?reportHealth() : reportSel==='buys'?reportBuys() : reportSel==='rate'?reportRate() : reportWaste();
+}
+function reportHealth(){
+  var items=state.items;
+  var scored=items.filter(function(i){ return i.nova || /^[a-e]$/.test(i.nutri||''); });
+  if(!scored.length){
+    return '<div class="rep-sub">No health scores yet. New scans get a Nutri-Score &amp; processing level automatically — or score your existing pantry now.</div>'+
+      '<button class="btn pri" id="analyzeBtn" onclick="analyzePantryHealth()">🔬 Analyze my pantry health</button>';
+  }
+  var ng={a:0,b:0,c:0,d:0,e:0}, nt=0;
+  scored.forEach(function(i){ var g=(i.nutri||'').toLowerCase(); if(g in ng){ng[g]++;nt++;} });
+  var nv={1:0,2:0,3:0,4:0}, nvt=0;
+  scored.forEach(function(i){ var n=i.nova; if(n>=1&&n<=4){nv[n]++;nvt++;} });
+  var ultra=nvt?Math.round(nv[4]/nvt*100):0;
+  var h='<div class="rep-big" style="color:'+(ultra>40?'#ef4444':ultra>20?'#f59e0b':'#22c55e')+'">'+ultra+'%</div>';
+  h+='<div class="rep-sub">of your scored items are ultra-processed (NOVA 4)</div>';
+  if(nt){
+    h+='<div class="group-h">Nutri-Score mix</div>';
+    ['a','b','c','d','e'].forEach(function(g){ var pct=Math.round(ng[g]/nt*100);
+      h+='<div class="bar"><span style="width:62px">Nutri '+g.toUpperCase()+'</span><div class="bar-track"><div class="bar-fill" style="width:'+pct+'%;background:'+nutriColor(g)+'"></div></div><span style="width:30px;text-align:right">'+ng[g]+'</span></div>'; });
+  }
+  var bad=scored.filter(function(i){ return i.nova===4 || /[de]/.test((i.nutri||'').toLowerCase()); }).sort(function(a,b){return (b.nova||0)-(a.nova||0);}).slice(0,8);
+  if(bad.length){
+    h+='<div class="group-h">Least healthy on hand</div>';
+    bad.forEach(function(i){ var g=(i.nutri||'').toLowerCase();
+      h+='<div class="rep-row"><span>'+emojiFor(i.name)+' '+esc(i.name)+'</span><span style="color:'+nutriColor(g)+';font-size:12px;text-align:right">'+(healthBadge(g,i.nova)||'—')+'</span></div>'; });
+  }
+  h+='<div class="rep-sub" style="margin-top:12px">'+scored.length+' of '+items.length+' items scored · <span onclick="analyzePantryHealth()" style="color:var(--teal);cursor:pointer">🔬 Re-analyze</span></div>';
+  return h;
+}
+function reportBuys(){
+  var log=(state.log||[]).filter(function(e){return e.type==='bought';});
+  if(!log.length) return '<div class="rep-sub">No purchases logged yet. Every time you mark something 🟢 Have (or buy it back), it counts here. Check back in a week.</div>';
+  var c={}; log.forEach(function(e){ c[e.name]=(c[e.name]||0)+1; });
+  var arr=Object.keys(c).map(function(k){return {name:k,n:c[k]};}).sort(function(a,b){return b.n-a.n;}).slice(0,15);
+  var max=arr[0].n;
+  var h='<div class="rep-sub">Most-bought items · '+log.length+' purchases logged</div>';
+  arr.forEach(function(r){ var pct=Math.round(r.n/max*100);
+    h+='<div class="bar"><span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(r.name)+'</span><div class="bar-track" style="max-width:110px"><div class="bar-fill" style="width:'+pct+'%;background:var(--teal)"></div></div><span style="width:34px;text-align:right">'+r.n+'×</span></div>'; });
+  return h;
+}
+function cyclesByName(){
+  var byName={}; (state.log||[]).forEach(function(e){ if(!byName[e.name])byName[e.name]={b:[],o:[]}; if(e.type==='bought')byName[e.name].b.push(e.t); else if(e.type==='out')byName[e.name].o.push(e.t); });
+  return byName;
+}
+function reportRate(){
+  if(!(state.log&&state.log.length)) return '<div class="rep-sub">Not enough history yet. Once you buy something and later mark it Out, I can tell how long it lasts. Give it a couple of weeks.</div>';
+  var byName=cyclesByName(), rows=[];
+  Object.keys(byName).forEach(function(nm){
+    var b=byName[nm].b.slice().sort(function(x,y){return x-y;}), o=byName[nm].o.slice().sort(function(x,y){return x-y;});
+    var durs=[], oi=0;
+    b.forEach(function(bt){ while(oi<o.length && o[oi]<bt) oi++; if(oi<o.length){ durs.push((o[oi]-bt)/86400000); oi++; } });
+    if(durs.length){ var avg=durs.reduce(function(a,c){return a+c;},0)/durs.length; rows.push({name:nm,days:Math.max(1,Math.round(avg)),cycles:durs.length}); }
+  });
+  if(!rows.length) return '<div class="rep-sub">No complete buy → run-out cycles yet. This fills in as items get used up.</div>';
+  rows.sort(function(a,b){return a.days-b.days;});
+  var h='<div class="rep-sub">How long each item lasts (buy → run out)</div>';
+  rows.slice(0,20).forEach(function(r){
+    h+='<div class="rep-row"><span>'+emojiFor(r.name)+' '+esc(r.name)+'</span><span>~'+r.days+'d <span style="color:var(--mut);font-size:12px">('+r.cycles+'×)</span></span></div>'; });
+  h+='<div class="rep-sub" style="margin-top:12px">Tip: shopping weekly and something lasts ~3 days? Buy ~2 to cover the week.</div>';
+  return h;
+}
+function reportWaste(){
+  var h='', any=false;
+  var expired=state.items.filter(function(i){ var du=daysUntil(i.expiry); return du!==null && du<0; });
+  if(expired.length){ any=true; h+='<div class="group-h">⚠️ Expired but still on hand</div>';
+    expired.forEach(function(i){ h+='<div class="rep-row"><span>'+emojiFor(i.name)+' '+esc(i.name)+'</span><span style="color:#ef4444">'+(-daysUntil(i.expiry))+'d ago</span></div>'; }); }
+  var byName=cyclesByName(), fast=[];
+  Object.keys(byName).forEach(function(nm){
+    var b=byName[nm].b.slice().sort(function(x,y){return x-y;}), o=byName[nm].o.slice().sort(function(x,y){return x-y;}), oi=0, n=0;
+    b.forEach(function(bt){ while(oi<o.length && o[oi]<bt) oi++; if(oi<o.length){ if((o[oi]-bt)/86400000<3) n++; oi++; } });
+    if(n>=2) fast.push({name:nm,n:n});
+  });
+  if(fast.length){ any=true; h+='<div class="group-h">Gone fast (out &lt;3 days, ≥2×) — over-buying?</div>';
+    fast.sort(function(a,b){return b.n-a.n;}).forEach(function(r){ h+='<div class="rep-row"><span>'+esc(r.name)+'</span><span>'+r.n+'×</span></div>'; }); }
+  if(!any) h='<div class="rep-sub">No waste signals yet 🎉 — nothing expired, no obvious over-buying. This grows as data builds.</div>';
+  return h;
+}
+function analyzePantryHealth(){
+  var todo=state.items.filter(function(i){ return i.barcode && !(i.nova || /^[a-e]$/.test(i.nutri||'')); });
+  if(!todo.length){ toast('Nothing new to score'); renderReport(); return; }
+  var b=document.getElementById('analyzeBtn'); if(b) b.textContent='Analyzing 0/'+todo.length+'…';
+  var i=0;
+  (function next(){
+    if(i>=todo.length){ persist(); toast('✓ Scored '+todo.length+' items'); renderReport(); return; }
+    var it=todo[i];
+    fetch('https://world.openfoodfacts.org/api/v2/product/'+encodeURIComponent(it.barcode)+'.json?fields=nutriscore_grade,nova_group')
+      .then(function(r){return r.json()}).then(function(d){
+        var p=(d&&d.status===1&&d.product)||{};
+        var g=(p.nutriscore_grade||'').toLowerCase(); if(/^[a-e]$/.test(g)) it.nutri=g;
+        var nv=parseInt(p.nova_group,10)||0; if(nv>=1&&nv<=4) it.nova=nv;
+      }).catch(function(){}).then(function(){
+        i++; var bb=document.getElementById('analyzeBtn'); if(bb) bb.textContent='Analyzing '+i+'/'+todo.length+'…';
+        setTimeout(next,120);   // polite pacing for the API
+      });
+  })();
 }
 
 /* ---------- import / export ---------- */
