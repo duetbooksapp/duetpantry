@@ -319,6 +319,7 @@
       <div class="mb" onclick="document.getElementById('importFile').click()">📥 Import JSON</div>
     </div>
     <input type="file" id="importFile" accept="application/json" style="display:none" onchange="importData(event)">
+    <div class="scanhint" id="verLine" onclick="checkUpdate()" style="text-align:center;margin-top:10px;opacity:.6;cursor:pointer">DuetPantry</div>
     <button class="btn gho" onclick="closeSheet('menuScrim')">Close</button>
   </div>
 </div>
@@ -413,6 +414,7 @@ var PERISHABLE = [/milk|cream|half.?and.?half/, /yog(h)?urt/, /cheese.*fresh|ric
   /berr|strawberr|raspberr|blueberr|blackberr/, /mushroom/, /avocado/, /banana/,
   /tomato/, /leftover/, /tofu/, /sprout/, /grape/];
 
+var APP_VERSION = '2026-06-21a';   // bump on every deploy; version.txt is kept in sync
 var state = { items:[], shopping:[], updatedAt:0 };
 var tab = 'have';
 var locFilter = 'All';
@@ -1290,11 +1292,24 @@ function toggleTheme(){
   var next=document.body.classList.contains('light') ? 'dark' : 'light';
   state.theme=next; applyTheme(next); persist();                  // persist → follows the user across devices
 }
+// Auto-update: on open, check the deployed version and silently reload to it if newer.
+function checkUpdate(){
+  var vl=document.getElementById('verLine'); if(vl) vl.textContent='DuetPantry '+APP_VERSION;
+  fetch('version.txt?_='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():'';}).then(function(v){
+    v=(v||'').trim(); if(!v) return;
+    if(v===APP_VERSION){ if(vl) vl.textContent='DuetPantry '+APP_VERSION+' · up to date'; return; }
+    var did=false; try{ did=sessionStorage.getItem('pantry_upd')==='1'; }catch(e){}
+    if(did){ if(vl) vl.textContent='DuetPantry '+APP_VERSION; return; }   // already reloaded once this session
+    try{ sessionStorage.setItem('pantry_upd','1'); }catch(e){}
+    var sp=new URLSearchParams(location.search); sp.set('_v', v);          // cache-bust → fresh HTML
+    location.replace(location.pathname+'?'+sp.toString());
+  }).catch(function(){});
+}
 function boot(){
   initTheme();
-  load(); initTheme(); initTextSize(); render(); pullCloud();
+  load(); initTheme(); initTextSize(); render(); pullCloud(); checkUpdate();
   // re-sync whenever the app comes back to the foreground, and every 20s while open
-  document.addEventListener('visibilitychange',function(){ if(!document.hidden) pullCloud(); });
+  document.addEventListener('visibilitychange',function(){ if(!document.hidden){ pullCloud(); checkUpdate(); } });
   window.addEventListener('focus',function(){ pullCloud(); });
   setInterval(function(){ if(!document.hidden) pullCloud(); },20000);
 }
