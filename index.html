@@ -134,6 +134,15 @@
   .comp-emoji{font-size:20px}
   .comp-nm{flex:1;font-size:14px;font-weight:600;line-height:1.3}
   .comp-have{font-size:12px;color:var(--mut);flex-shrink:0}
+  .note{font-size:12px;color:var(--teal);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+  .dup{background:#7c531022;border:1px solid #7c5310;border-radius:11px;padding:9px 11px;margin:8px 0;font-size:13px;color:var(--txt)}
+  .dup b{color:var(--amber)}
+  .dup-row{display:flex;justify-content:space-between;gap:8px;margin-top:5px}
+  .dup-q{color:var(--mut);flex-shrink:0;font-size:12px}
+  body.light .dup{background:#f9ecd2;border-color:#e0b667}
+  .onfile-item{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:13px}
+  .onfile-have{font-size:14px;color:var(--txt);margin-top:6px}
+  .onfile-note{font-size:13px;color:var(--teal);margin-top:6px;font-weight:600}
   .empty{text-align:center;padding:60px 20px;color:var(--mut)}
   .empty .big{font-size:54px;margin-bottom:12px;opacity:.6}
   .fab{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);
@@ -232,8 +241,9 @@
       <div class="quickrow" id="quickRow"></div>
     </div>
     <label class="fld">Item name</label>
-    <input class="f" id="f_name" placeholder="e.g. Eggs" autocomplete="off">
+    <input class="f" id="f_name" placeholder="e.g. Eggs" autocomplete="off" oninput="refreshDupHint()">
     <div id="lookupMsg"></div>
+    <div id="dupHint"></div>
     <label class="fld">Where does it live?</label>
     <div class="seg" id="f_loc"></div>
     <div class="two">
@@ -248,10 +258,23 @@
     </div>
     <label class="fld">Expires (optional)</label>
     <input class="f" id="f_exp" type="date">
+    <label class="fld">📝 Note / comment (optional)</label>
+    <textarea class="f" id="f_note" style="min-height:62px" placeholder="e.g. Costco only · for Thanksgiving · big carton"></textarea>
     <input type="hidden" id="f_id"><input type="hidden" id="f_barcode">
     <button class="btn pri" onclick="saveItem()">Save</button>
     <button class="btn danger" id="delBtn" style="display:none" onclick="deleteItem()">Delete item</button>
     <button class="btn gho" onclick="closeSheet('addScrim')">Cancel</button>
+  </div>
+</div>
+
+<!-- "Already on file" sheet (scanned an item you already have) -->
+<div class="scrim" id="onfileScrim">
+  <div class="sheet">
+    <div class="grip"></div>
+    <h2>📋 Already in your pantry</h2>
+    <div id="onfileBody"></div>
+    <button class="btn pri" id="onfileAdd" onclick="onfileAddOne()">＋ Add one more</button>
+    <button class="btn gho" onclick="closeSheet('onfileScrim')">✓ Just checking — no change</button>
   </div>
 </div>
 
@@ -537,6 +560,7 @@ function itemCard(it){
     '<div class="ic-emoji">'+emojiFor(it.name)+'</div>'+
     '<div class="info" onclick="openEdit(\''+it.id+'\')">'+
       '<div class="nm">'+esc(it.name)+'</div>'+
+      (it.notes?'<div class="note">💬 '+esc(it.notes)+'</div>':'')+
       '<div class="sub">'+(subs.join('')||'<span>'+it.location+'</span>')+'</div>'+
     '</div>'+
     '<div class="row-act"><button class="mini" onclick="usedUp(\''+it.id+'\')">used up ✕</button></div>'+
@@ -852,10 +876,13 @@ function openAdd(prefill){
   document.getElementById('f_exp').value='';
   document.getElementById('f_id').value='';
   document.getElementById('f_barcode').value=(prefill&&prefill.barcode)||'';
+  document.getElementById('f_note').value='';
   document.getElementById('lookupMsg').innerHTML='';
+  document.getElementById('dupHint').innerHTML='';
   buildLocSeg((prefill&&prefill.location)||'Pantry');
   buildQuick();
   openSheet('addScrim');
+  refreshDupHint();
   if(!prefill||!prefill.name) setTimeout(function(){document.getElementById('f_name').focus();},250);
 }
 function openEdit(id){
@@ -868,7 +895,9 @@ function openEdit(id){
   document.getElementById('f_exp').value=it.expiry||'';
   document.getElementById('f_id').value=it.id;
   document.getElementById('f_barcode').value=it.barcode||'';
+  document.getElementById('f_note').value=it.notes||'';
   document.getElementById('lookupMsg').innerHTML='';
+  document.getElementById('dupHint').innerHTML='';
   document.getElementById('quickWrap').style.display='none';
   buildLocSeg(it.location);
   openSheet('addScrim');
@@ -901,13 +930,14 @@ function saveItem(){
   var low=parseFloat(document.getElementById('f_low').value)||0;
   var loc=selectedLoc(); var exp=document.getElementById('f_exp').value||'';
   var bc=document.getElementById('f_barcode').value||'';
+  var note=(document.getElementById('f_note').value||'').trim();
   if(editingId){
-    var it=find(editingId); if(it){ it.name=name;it.qty=qty;it.low=low;it.location=loc;it.expiry=exp;it.barcode=bc; }
+    var it=find(editingId); if(it){ it.name=name;it.qty=qty;it.low=low;it.location=loc;it.expiry=exp;it.barcode=bc;it.notes=note; }
   } else {
     // merge if same name already exists
     var ex=state.items.filter(function(x){return x.name.toLowerCase()===name.toLowerCase();})[0];
-    if(ex){ ex.qty=Math.round((ex.qty+qty)*100)/100; ex.location=loc; }
-    else state.items.push({id:uid(),name:name,qty:qty,low:low,location:loc,barcode:bc,expiry:exp,addedAt:Date.now()});
+    if(ex){ ex.qty=Math.round((ex.qty+qty)*100)/100; ex.location=loc; if(note) ex.notes=note; }
+    else state.items.push({id:uid(),name:name,qty:qty,low:low,location:loc,barcode:bc,expiry:exp,notes:note,addedAt:Date.now()});
     // remove from shopping list if it was there
     state.shopping=state.shopping.filter(function(s){return s.name.toLowerCase()!==name.toLowerCase();});
   }
@@ -1032,9 +1062,9 @@ function stopScan(){
 function closeScan(){ stopScan(); closeSheet('scanScrim'); }
 function onBarcode(code){
   closeSheet('scanScrim');
-  // already have it? just bump qty
+  // already have it? show what's on file and let you decide (don't silently add)
   var ex=state.items.filter(function(it){return it.barcode===code;})[0];
-  if(ex){ ex.qty=Math.round((ex.qty+1)*100)/100; persist(); render(); toast('＋1 '+ex.name); return; }
+  if(ex){ openOnFile(ex); return; }
   // open add sheet & look up product name
   openAdd({barcode:code});
   document.getElementById('lookupMsg').innerHTML='<div class="lookup"><span class="spinner"></span> Looking up product…</div>';
@@ -1049,13 +1079,55 @@ function lookupProduct(code){
         var nm=d.product.product_name||d.product.generic_name||'';
         var br=d.product.brands?(d.product.brands.split(',')[0]):'';
         var full=(nm||'').trim(); if(br && full && full.toLowerCase().indexOf(br.toLowerCase())<0) full=br+' '+full;
-        if(full){ document.getElementById('f_name').value=full; lm.innerHTML='<div class="lookup">✓ Found: '+esc(full)+'</div>'; }
+        if(full){ document.getElementById('f_name').value=full; lm.innerHTML='<div class="lookup">✓ Found: '+esc(full)+'</div>'; refreshDupHint(); }
         else lm.innerHTML='<div class="lookup">Found product but no name — type it.</div>';
       } else {
         lm.innerHTML='<div class="lookup">Not in database (barcode '+esc(code)+') — type the name.</div>';
       }
     })
     .catch(function(){ document.getElementById('lookupMsg').innerHTML='<div class="lookup">Offline — type the name.</div>'; });
+}
+// ---- "do I already have this?" helpers ----
+var DUP_STOP={with:1,from:1,made:1,organic:1,natural:1,brand:1,brands:1,value:1,great:1,signature:1,original:1,classic:1,whole:1,style:1,foods:1,market:1,farms:1,premium:1,gather:1,good:1,simply:1,nature:1,pantry:1,kitchen:1,fresh:1};
+function similarItems(name, excludeId){
+  var words=(name.toLowerCase().match(/[a-z]{4,}/g)||[]).filter(function(w){return !DUP_STOP[w];});
+  if(!words.length) words=(name.toLowerCase().match(/[a-z]{3,}/g)||[]);
+  if(!words.length) return [];
+  return state.items.filter(function(it){
+    if(excludeId && it.id===excludeId) return false;
+    var n=it.name.toLowerCase();
+    return words.some(function(w){ return n.indexOf(w)>=0; });
+  });
+}
+function refreshDupHint(){
+  var box=document.getElementById('dupHint'); if(!box) return;
+  var name=(document.getElementById('f_name').value||'').trim();
+  if(editingId || name.length<3){ box.innerHTML=''; return; }
+  var sim=similarItems(name, editingId).slice(0,5);
+  if(!sim.length){ box.innerHTML=''; return; }
+  box.innerHTML='<div class="dup"><b>📋 You may already have this:</b>'+
+    sim.map(function(it){ return '<div class="dup-row"><span>'+emojiFor(it.name)+' '+esc(it.name)+'</span><span class="dup-q">'+fmt(it.qty)+' · '+esc(it.location)+'</span></div>'; }).join('')+
+    '</div>';
+}
+var onfileId=null;
+function openOnFile(it){
+  onfileId=it.id;
+  var du=daysUntil(it.expiry), extra='';
+  if(du!==null) extra=(du<0?' · ⚠️ expired':' · exp in '+du+'d');
+  var h='<div class="onfile-item">'+
+    '<div class="recipe-h">'+emojiFor(it.name)+' '+esc(it.name)+'</div>'+
+    '<div class="onfile-have">You have <b>'+fmt(it.qty)+'</b> · '+esc(it.location)+' · '+fmtAdded(it.addedAt)+extra+'</div>'+
+    (it.notes?'<div class="onfile-note">💬 '+esc(it.notes)+'</div>':'')+
+    '</div>'+
+    '<div class="scanhint" style="margin-top:8px">You already have this on file — decide if you still need to buy more.</div>';
+  document.getElementById('onfileBody').innerHTML=h;
+  document.getElementById('onfileAdd').textContent='＋ Add one more (→ '+fmt(it.qty+1)+')';
+  openSheet('onfileScrim');
+}
+function onfileAddOne(){
+  var it=onfileId?find(onfileId):null;
+  if(it){ it.qty=Math.round((it.qty+1)*100)/100; maybeAutoShop(it); persist(); render(); toast('＋1 '+it.name+' (now '+fmt(it.qty)+')'); }
+  closeSheet('onfileScrim');
 }
 
 /* ---------- import / export ---------- */
