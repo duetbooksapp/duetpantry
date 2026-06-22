@@ -91,6 +91,15 @@
   @keyframes pop{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
   .card.low{border-color:#7c5310;background:linear-gradient(90deg,#1f1708,var(--panel) 60%)}
   .card.exp{border-color:#7c1d1d}
+  .card.out{border-color:#7c1d1d}
+  .stock{display:flex;gap:4px;flex-shrink:0}
+  .stock .lv{width:36px;height:38px;border:none;border-radius:10px;background:var(--panel2);font-size:18px;cursor:pointer;opacity:.35;filter:grayscale(.5);line-height:1;padding:0}
+  .stock .lv.on{opacity:1;filter:none}
+  .stock .lv.on.have{box-shadow:inset 0 0 0 2px #22c55e;background:#22c55e22}
+  .stock .lv.on.low{box-shadow:inset 0 0 0 2px #f59e0b;background:#f59e0b22}
+  .stock .lv.on.out{box-shadow:inset 0 0 0 2px #ef4444;background:#ef444422}
+  .stock .lv:active{opacity:.8}
+  body.light .card.out{border-color:#e6a3a3}
   .ic-emoji{width:42px;height:42px;border-radius:11px;background:var(--panel2);display:flex;
     align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
   .info{flex:1;min-width:0}
@@ -274,6 +283,7 @@
     <h2>📋 Already in your pantry</h2>
     <div id="onfileBody"></div>
     <button class="btn pri" id="onfileAdd" onclick="onfileAddOne()">＋ Add one more</button>
+    <button class="btn danger" onclick="onfileUsedLast()">🔴 Used the last one — add to list</button>
     <button class="btn gho" onclick="closeSheet('onfileScrim')">✓ Just checking — no change</button>
   </div>
 </div>
@@ -414,7 +424,7 @@ var PERISHABLE = [/milk|cream|half.?and.?half/, /yog(h)?urt/, /cheese.*fresh|ric
   /berr|strawberr|raspberr|blueberr|blackberr/, /mushroom/, /avocado/, /banana/,
   /tomato/, /leftover/, /tofu/, /sprout/, /grape/];
 
-var APP_VERSION = '2026-06-21a';   // bump on every deploy; version.txt is kept in sync
+var APP_VERSION = '2026-06-21b';   // bump on every deploy; version.txt is kept in sync
 var state = { items:[], shopping:[], updatedAt:0 };
 var tab = 'have';
 var locFilter = 'All';
@@ -526,11 +536,11 @@ function render(){
       (state.items.length? 'No matches.' : 'Your kitchen is empty.<br>Scan a barcode or tap Add to start.')+'</div></div>';
     return;
   }
-  // sort: low stock first, then "been a while", then by location, then name
+  // sort: by location group, then Out → Low → Have within each, then name
+  var RANK={out:0,low:1,have:2};
   items.sort(function(a,b){
-    var al=isLow(a)?0:1, bl=isLow(b)?0:1; if(al!==bl)return al-bl;
-    var as=isStale(a)?0:1, bs=isStale(b)?0:1; if(as!==bs)return as-bs;
     var lo=LOCATIONS.indexOf(a.location)-LOCATIONS.indexOf(b.location); if(lo)return lo;
+    var ra=RANK[levelOf(a)], rb=RANK[levelOf(b)]; if(ra!==rb)return ra-rb;
     return a.name.localeCompare(b.name);
   });
   // group by location
@@ -550,27 +560,28 @@ function staleAfter(it){ var nm=(it.name||'').toLowerCase();
   return STALE_DAYS[it.location]||180; }
 // Nudge only when there's no explicit expiry date (that signal takes over if set).
 function isStale(it){ return !it.expiry && ageDays(it) >= staleAfter(it); }
+function levelOf(it){ return it.level || (it.qty>0?'have':'out'); }
 function itemCard(it){
-  var low=isLow(it); var du=daysUntil(it.expiry); var expSoon=du!==null && du<=3;
+  var lv=levelOf(it); var du=daysUntil(it.expiry); var expSoon=du!==null && du<=3;
   var stale=isStale(it);
   var subs=[];
-  if(low) subs.push('<span class="tagy">Running low</span>');
   if(stale) subs.push('<span class="tagstale">🕒 '+ageDays(it)+'d — been a while</span>');
   if(du!==null){ if(du<0) subs.push('<span class="tagr">Expired</span>'); else if(du<=3) subs.push('<span class="tagr">'+du+'d left</span>'); else subs.push('<span style="opacity:.8">exp '+(du)+'d</span>'); }
   if(it.size) subs.push('<span style="opacity:.7">📦 '+esc(it.size)+'</span>');
+  if(it.qty>1) subs.push('<span style="opacity:.7">×'+fmt(it.qty)+'</span>');
   subs.push('<span style="opacity:.7">📅 '+fmtAdded(it.addedAt)+'</span>');
-  return '<div class="card'+(low?' low':'')+(stale&&!low?' stale':'')+(expSoon?' exp':'')+'">'+
+  var cls=(lv==='out'?' out':lv==='low'?' low':'');
+  return '<div class="card'+cls+(stale&&lv==='have'?' stale':'')+(expSoon?' exp':'')+'">'+
     '<div class="ic-emoji">'+emojiFor(it.name)+'</div>'+
     '<div class="info" onclick="openEdit(\''+it.id+'\')">'+
       '<div class="nm">'+esc(it.name)+'</div>'+
       (it.notes?'<div class="note">💬 '+esc(it.notes)+'</div>':'')+
       '<div class="sub">'+(subs.join('')||'<span>'+it.location+'</span>')+'</div>'+
     '</div>'+
-    '<div class="row-act"><button class="mini" onclick="usedUp(\''+it.id+'\')">used up ✕</button></div>'+
-    '<div class="qty">'+
-      '<button class="minus" onclick="bump(\''+it.id+'\',-1)">−</button>'+
-      '<span class="v">'+fmt(it.qty)+'</span>'+
-      '<button class="plus" onclick="bump(\''+it.id+'\',1)">＋</button>'+
+    '<div class="stock">'+
+      '<button class="lv have'+(lv==='have'?' on':'')+'" onclick="setLevel(\''+it.id+'\',\'have\')" title="Have it">🟢</button>'+
+      '<button class="lv low'+(lv==='low'?' on':'')+'" onclick="setLevel(\''+it.id+'\',\'low\')" title="Getting low">🟡</button>'+
+      '<button class="lv out'+(lv==='out'?' on':'')+'" onclick="setLevel(\''+it.id+'\',\'out\')" title="Out">🔴</button>'+
     '</div></div>';
 }
 function fmt(n){ return (Math.round(n*100)/100).toString(); }
@@ -819,11 +830,7 @@ function confirmComplete(){
 function consumeByName(name){
   var it=state.items.filter(function(x){return x.name===name;})[0]; if(!it) return;
   it.qty=Math.round((it.qty-1)*100)/100;
-  if(it.qty<=0){
-    if(!state.shopping.some(function(s){return s.name.toLowerCase()===it.name.toLowerCase();}))
-      state.shopping.push({id:uid(),name:it.name,location:it.location,barcode:it.barcode||'',auto:true});
-    state.items=state.items.filter(function(x){return x.id!==it.id;});
-  } else { maybeAutoShop(it); }
+  if(it.qty<=0){ it.qty=0; it.level='out'; ensureOnShop(it); }   // keep item, mark Out
 }
 
 /* ---------- inventory actions ---------- */
@@ -842,16 +849,25 @@ function maybeAutoShop(it){
     toast('🛒 '+it.name+' added to shopping list');
   }
 }
-function usedUp(id,silent){
-  var it=find(id); if(!it)return;
-  if(!state.shopping.some(function(s){return s.name.toLowerCase()===it.name.toLowerCase()})){
+// Stock level: 'have' | 'low' | 'out'. The item STAYS in the kitchen list (colored), so you
+// keep your staple list; low/out flow to the shopping list automatically.
+function ensureOnShop(it){
+  if(!state.shopping.some(function(s){return s.name.toLowerCase()===it.name.toLowerCase();}))
     state.shopping.push({id:uid(),name:it.name,location:it.location,barcode:it.barcode||'',auto:true});
-  }
-  state.items=state.items.filter(function(x){return x.id!==id;});
-  if(!silent) toast('✓ Used up — moved to shopping list');
-  else toast('🛒 '+it.name+' → shopping list');
+}
+function removeNameFromShop(name){
+  state.shopping=state.shopping.filter(function(s){return s.name.toLowerCase()!==name.toLowerCase();});
+}
+function setLevel(id,lvl){
+  var it=find(id); if(!it)return;
+  it.level=lvl;
+  if(lvl==='have'){ if(it.qty<=0) it.qty=1; removeNameFromShop(it.name); toast('🟢 '+it.name+' — have it'); }
+  else if(lvl==='low'){ ensureOnShop(it); toast('🟡 '+it.name+' — low, on the list'); }
+  else { it.qty=0; ensureOnShop(it); toast('🔴 '+it.name+' — out, on the list'); }
   persist(); render();
 }
+// kept for the count path (recipes); marks Out instead of deleting
+function usedUp(id){ setLevel(id,'out'); }
 function find(id){ for(var i=0;i<state.items.length;i++) if(state.items[i].id===id) return state.items[i]; return null; }
 
 /* ---------- shopping actions ---------- */
@@ -859,9 +875,9 @@ function boughtItem(id){
   var s=null; state.shopping=state.shopping.filter(function(x){ if(x.id===id){s=x;return false;} return true; });
   if(s){
     var ex=state.items.filter(function(it){return it.name.toLowerCase()===s.name.toLowerCase();})[0];
-    if(ex){ ex.qty=Math.round((ex.qty+1)*100)/100; }
-    else { state.items.push({id:uid(),name:s.name,qty:1,low:1,location:s.location||'Pantry',barcode:s.barcode||'',expiry:'',addedAt:Date.now()}); }
-    toast('✓ Bought — added to kitchen');
+    if(ex){ ex.level='have'; if(ex.qty<=0) ex.qty=1; }
+    else { state.items.push({id:uid(),name:s.name,qty:1,low:1,level:'have',location:s.location||'Pantry',barcode:s.barcode||'',expiry:'',addedAt:Date.now()}); }
+    toast('✓ Bought — marked have');
   }
   persist(); render();
 }
@@ -1122,9 +1138,10 @@ function openOnFile(it){
   onfileId=it.id;
   var du=daysUntil(it.expiry), extra='';
   if(du!==null) extra=(du<0?' · ⚠️ expired':' · exp in '+du+'d');
+  var lv=levelOf(it), dot={have:'🟢 have it',low:'🟡 getting low',out:'🔴 out'}[lv];
   var h='<div class="onfile-item">'+
     '<div class="recipe-h">'+emojiFor(it.name)+' '+esc(it.name)+'</div>'+
-    '<div class="onfile-have">You have <b>'+fmt(it.qty)+'</b> · '+esc(it.location)+(it.size?' · 📦 '+esc(it.size):'')+' · '+fmtAdded(it.addedAt)+extra+'</div>'+
+    '<div class="onfile-have"><b>'+dot+'</b> · '+esc(it.location)+(it.size?' · 📦 '+esc(it.size):'')+' · '+fmtAdded(it.addedAt)+extra+'</div>'+
     (it.notes?'<div class="onfile-note">💬 '+esc(it.notes)+'</div>':'')+
     '</div>'+
     '<div class="scanhint" style="margin-top:8px">You already have this on file — decide if you still need to buy more.</div>';
@@ -1134,7 +1151,12 @@ function openOnFile(it){
 }
 function onfileAddOne(){
   var it=onfileId?find(onfileId):null;
-  if(it){ it.qty=Math.round((it.qty+1)*100)/100; maybeAutoShop(it); persist(); render(); toast('＋1 '+it.name+' (now '+fmt(it.qty)+')'); }
+  if(it){ it.qty=Math.round((it.qty+1)*100)/100; it.level='have'; removeNameFromShop(it.name); persist(); render(); toast('🟢 '+it.name+' — have it ('+fmt(it.qty)+')'); }
+  closeSheet('onfileScrim');
+}
+function onfileUsedLast(){
+  var it=onfileId?find(onfileId):null;
+  if(it){ it.level='out'; it.qty=0; ensureOnShop(it); persist(); render(); toast('🔴 '+it.name+' — out, added to list'); }
   closeSheet('onfileScrim');
 }
 
